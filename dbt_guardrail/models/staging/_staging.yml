@@ -1,0 +1,42 @@
+version: 2
+
+models:
+  - name: stg_product_events
+    description: >
+      Typed analytical projection of canonical product events. The raw attributes
+      object is retained alongside stable, event-specific columns.
+    columns:
+      - name: event_id
+        description: Stable producer event identity.
+        data_tests: [not_null, unique]
+      - name: event_name
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - experiment_assigned
+                  - experiment_exposed
+                  - restaurant_viewed
+                  - item_added
+                  - checkout_started
+                  - order_completed
+                  - order_cancelled
+                  - payment_failed
+                  - delivery_completed
+      - name: user_id
+        data_tests: [not_null]
+      - name: session_id
+        data_tests: [not_null]
+      - name: experiment_id
+        data_tests: [not_null]
+      - name: variant_id
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [control, treatment]
+      - name: event_timestamp
+        data_tests: [not_null]
+      - name: attributes
+        data_tests: [not_null]

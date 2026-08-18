@@ -1,0 +1,16 @@
+guardrail:
+  target: dev
+  outputs:
+    dev:
+      type: snowflake
+      account: "{{ env_var('DBT_SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('DBT_SNOWFLAKE_USER') }}"
+      authenticator: programmatic_access_token
+      token: "{{ env_var('DBT_SNOWFLAKE_PAT') }}"
+      role: "{{ env_var('DBT_SNOWFLAKE_ROLE', 'GUARDRAIL_ENGINEER') }}"
+      warehouse: "{{ env_var('DBT_SNOWFLAKE_WAREHOUSE', 'GUARDRAIL_TRANSFORM_WH') }}"
+      database: "{{ env_var('DBT_SNOWFLAKE_DATABASE', 'GUARDRAIL') }}"
+      schema: CORE
+      threads: 4
+      client_session_keep_alive: false
+      query_tag: guardrail_phase3_dbt

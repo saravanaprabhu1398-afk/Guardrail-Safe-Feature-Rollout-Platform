@@ -1,0 +1,53 @@
+version: 2
+
+models:
+  - name: fct_user_experiment_metrics
+    description: >
+      One row per user, experiment, and allocation version after the first eligible
+      exposure, with conversion and guardrail outcomes attributed for 24 hours.
+    columns:
+      - name: user_experiment_key
+        data_tests: [not_null, unique]
+      - name: experiment_id
+        data_tests: [not_null]
+      - name: user_id
+        data_tests: [not_null]
+      - name: allocation_version
+        data_tests: [not_null]
+      - name: variant_id
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [control, treatment]
+      - name: first_exposure_event_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('fct_experiment_exposures')
+                field: exposure_event_id
+
+  - name: agg_experiment_results
+    description: Variant-level experiment KPIs and operational guardrails.
+    columns:
+      - name: experiment_variant_key
+        data_tests: [not_null, unique]
+      - name: experiment_id
+        data_tests: [not_null]
+      - name: variant_id
+        data_tests: [not_null]
+      - name: allocation_version
+        data_tests: [not_null]
+      - name: exposed_users
+        data_tests: [not_null]
+      - name: conversion_rate
+        data_tests: [not_null]
+      - name: control_conversion_rate
+        data_tests: [not_null]
+      - name: absolute_conversion_lift
+        data_tests: [not_null]
+      - name: cancellation_user_rate
+        data_tests: [not_null]
+      - name: payment_failure_user_rate
+        data_tests: [not_null]

@@ -1,0 +1,48 @@
+with source_events as (
+    select * from {{ source('clean', 'product_events_deduplicated') }}
+)
+
+select
+    event_id,
+    ingestion_id,
+    batch_id,
+    event_name,
+    event_version,
+    user_id,
+    anonymous_id,
+    session_id,
+    experiment_id,
+    variant_id,
+    event_timestamp,
+    sent_timestamp,
+    received_timestamp,
+    first_ingested_at,
+    to_date(event_timestamp) as event_date,
+    source,
+    attributes,
+    payload_hash,
+    datediff('second', event_timestamp, received_timestamp) as receive_lag_seconds,
+    datediff('second', received_timestamp, first_ingested_at) as ingest_lag_seconds,
+    datediff('second', event_timestamp, received_timestamp)
+        > {{ var('late_event_threshold_seconds') }} as is_late_event,
+    try_to_number(attributes:bucket::string) as assignment_bucket,
+    coalesce(try_to_number(attributes:allocation_version::string), 1) as allocation_version,
+    attributes:assignment_reason::string as assignment_reason,
+    attributes:feature_version::string as feature_version,
+    attributes:surface::string as exposure_surface,
+    attributes:restaurant_id::string as restaurant_id,
+    try_to_number(attributes:rank::string) as restaurant_rank,
+    attributes:query_id::string as query_id,
+    attributes:item_id::string as item_id,
+    try_to_decimal(attributes:price::string, 18, 2) as item_price,
+    attributes:cart_id::string as cart_id,
+    attributes:order_id::string as order_id,
+    try_to_decimal(attributes:cart_value::string, 18, 2) as cart_value,
+    try_to_decimal(attributes:order_amount::string, 18, 2) as order_amount,
+    attributes:currency::string as currency,
+    attributes:actor::string as cancellation_actor,
+    attributes:reason::string as cancellation_reason,
+    attributes:payment_provider::string as payment_provider,
+    attributes:error_category::string as payment_error_category,
+    try_to_number(attributes:delivery_minutes::string) as delivery_minutes
+from source_events

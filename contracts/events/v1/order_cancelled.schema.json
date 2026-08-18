@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://guardrail.dev/contracts/events/v1/order_cancelled.schema.json",
+  "title": "Order cancelled event v1",
+  "x-guardrail-event-name": "order_cancelled",
+  "x-guardrail-event-version": 1,
+  "allOf": [
+    { "$ref": "../common/product-event-envelope.v1.schema.json" },
+    {
+      "properties": {
+        "event_name": { "const": "order_cancelled" },
+        "attributes": {
+          "type": "object",
+          "required": ["order_id", "actor", "reason"],
+          "additionalProperties": false,
+          "properties": {
+            "order_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "actor": { "enum": ["customer", "restaurant", "courier", "platform"] },
+            "reason": { "type": "string", "minLength": 1, "maxLength": 128 }
+          }
+        }
+      }
+    }
+  ]
+}

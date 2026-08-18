@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://guardrail.dev/contracts/events/common/product-event-envelope.v1.schema.json",
+  "title": "Guardrail product event envelope v1",
+  "description": "Common producer fields and platform-owned lineage extensions for every Guardrail product event.",
+  "type": "object",
+  "required": [
+    "event_id",
+    "event_name",
+    "event_version",
+    "user_id",
+    "anonymous_id",
+    "session_id",
+    "experiment_id",
+    "variant_id",
+    "event_timestamp",
+    "sent_timestamp",
+    "received_timestamp",
+    "source",
+    "attributes"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "event_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "event_name": {
+      "type": "string",
+      "enum": [
+        "experiment_assigned",
+        "experiment_exposed",
+        "restaurant_viewed",
+        "item_added",
+        "checkout_started",
+        "order_completed",
+        "order_cancelled",
+        "payment_failed",
+        "delivery_completed"
+      ]
+    },
+    "event_version": { "const": 1 },
+    "user_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "anonymous_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "session_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "experiment_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "variant_id": { "enum": ["control", "treatment"] },
+    "event_timestamp": { "type": "string", "format": "date-time" },
+    "sent_timestamp": { "type": "string", "format": "date-time" },
+    "received_timestamp": { "type": "string", "format": "date-time" },
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "attributes": { "type": "object" },
+    "_guardrail_transport": { "$ref": "#/$defs/transportMetadata" },
+    "_guardrail_replay": { "$ref": "#/$defs/replayMetadata" },
+    "_guardrail_transport_error": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "transportMetadata": {
+      "type": "object",
+      "required": ["topic", "partition", "offset", "timestamp"],
+      "additionalProperties": false,
+      "properties": {
+        "topic": { "type": "string", "minLength": 1 },
+        "partition": { "type": "integer", "minimum": 0 },
+        "offset": { "type": "integer", "minimum": 0 },
+        "timestamp": { "type": "integer", "minimum": -1 },
+        "transport_batch_id": { "type": ["string", "null"] },
+        "transport_message_id": { "type": ["string", "null"] },
+        "produced_at": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "replayMetadata": {
+      "type": "object",
+      "required": [
+        "replay_id",
+        "rejection_id",
+        "original_batch_id",
+        "original_ingestion_id",
+        "attempt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "replay_id": { "type": "string", "minLength": 1 },
+        "rejection_id": { "type": "string", "minLength": 1 },
+        "original_batch_id": { "type": "string", "minLength": 1 },
+        "original_ingestion_id": { "type": ["string", "null"] },
+        "attempt": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

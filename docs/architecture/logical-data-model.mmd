@@ -1,0 +1,15 @@
+erDiagram
+    EXPERIMENT ||--o{ EXPERIMENT_VARIANT : contains
+    EXPERIMENT ||--o{ ASSIGNMENT : assigns
+    EXPERIMENT_VARIANT ||--o{ ASSIGNMENT : selected_for
+    ASSIGNMENT ||--o{ EXPOSURE : produces
+    USER ||--o{ ASSIGNMENT : receives
+    USER ||--o{ PRODUCT_OUTCOME : creates
+    EXPOSURE ||--o{ PRODUCT_OUTCOME : attributed_to
+    METRIC_DEFINITION ||--o{ USER_EXPERIMENT_METRIC : generates
+    EXPERIMENT ||--o{ USER_EXPERIMENT_METRIC : measures
+    USER_EXPERIMENT_METRIC ||--o{ EXPERIMENT_ANALYSIS : aggregates_into
+    EXPERIMENT ||--o{ HEALTH_CHECK : validates
+    EXPERIMENT_ANALYSIS ||--o{ ROLLOUT_DECISION : informs
+    HEALTH_CHECK ||--o{ ROLLOUT_DECISION : gates
+    ROLLOUT_DECISION ||--o{ STATE_TRANSITION : causes

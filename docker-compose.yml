@@ -1,0 +1,119 @@
+name: guardrail-platform
+
+networks:
+  guardrail:
+    driver: bridge
+
+volumes:
+  redpanda-data:
+
+services:
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v26.1.14
+    command:
+      - redpanda
+      - start
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr=internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr=internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr=internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr=redpanda:33145
+      - --advertise-rpc-addr=redpanda:33145
+      - --mode=dev-container
+      - --smp=1
+      - --default-log-level=warn
+    ports:
+      - "18081:18081"
+      - "18082:18082"
+      - "19092:19092"
+      - "19644:9644"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    networks:
+      - guardrail
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redpanda-topic-init:
+    image: docker.redpanda.com/redpandadata/redpanda:v26.1.14
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        rpk topic describe guardrail.product-events.v1 --brokers=redpanda:9092
+        >/dev/null 2>&1 ||
+        rpk topic create guardrail.product-events.v1 --partitions=3
+        --replicas=1 --brokers=redpanda:9092
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    networks:
+      - guardrail
+
+  redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:v3.9.0
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      SCHEMAREGISTRY_ENABLED: "true"
+      SCHEMAREGISTRY_URLS: http://redpanda:8081
+      REDPANDA_ADMINAPI_ENABLED: "true"
+      REDPANDA_ADMINAPI_URLS: http://redpanda:9644
+    ports:
+      - "8080:8080"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    networks:
+      - guardrail
+
+  guardrail-api:
+    build: .
+    environment:
+      GUARDRAIL_EVENT_TRANSPORT: redpanda
+      REDPANDA_BOOTSTRAP_SERVERS: redpanda:9092
+      REDPANDA_TOPIC: guardrail.product-events.v1
+      REDPANDA_CLIENT_ID: guardrail-api
+    ports:
+      - "8000:8000"
+    depends_on:
+      redpanda-topic-init:
+        condition: service_completed_successfully
+    networks:
+      - guardrail
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  guardrail-worker:
+    profiles: ["snowflake"]
+    build: .
+    command: ["uv", "run", "--no-dev", "guardrail-redpanda-worker"]
+    environment:
+      PYTHONUNBUFFERED: "1"
+      REDPANDA_BOOTSTRAP_SERVERS: redpanda:9092
+      REDPANDA_TOPIC: guardrail.product-events.v1
+      REDPANDA_CONSUMER_GROUP: guardrail-snowpipe-sink-v1
+      SNOWFLAKE_ACCOUNT: ${SNOWFLAKE_ACCOUNT:-}
+      SNOWFLAKE_USER: ${SNOWFLAKE_USER:-}
+      SNOWFLAKE_ROLE: ${SNOWFLAKE_ROLE:-GUARDRAIL_ENGINEER}
+      SNOWFLAKE_WAREHOUSE: ${SNOWFLAKE_WAREHOUSE:-GUARDRAIL_INGEST_WH}
+      SNOWFLAKE_DATABASE: ${SNOWFLAKE_DATABASE:-GUARDRAIL}
+      SNOWFLAKE_SCHEMA: ${SNOWFLAKE_SCHEMA:-RAW}
+      SNOWFLAKE_AUTH_METHOD: PAT
+      SNOWFLAKE_PAT_FILE: .secrets/snowflake_pat
+    volumes:
+      - ./.secrets:/app/.secrets:ro
+    depends_on:
+      redpanda-topic-init:
+        condition: service_completed_successfully
+    networks:
+      - guardrail

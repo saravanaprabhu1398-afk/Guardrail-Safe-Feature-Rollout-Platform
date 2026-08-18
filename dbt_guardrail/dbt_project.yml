@@ -1,0 +1,46 @@
+name: guardrail
+version: 1.0.0
+config-version: 2
+
+profile: guardrail
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+seed-paths: ["seeds"]
+
+target-path: target
+clean-targets:
+  - target
+  - dbt_packages
+  - logs
+
+vars:
+  attribution_window_hours: 24
+  late_event_threshold_seconds: 300
+
+models:
+  guardrail:
+    +persist_docs:
+      relation: true
+      columns: true
+    staging:
+      +materialized: view
+      +schema: CLEAN
+      +tags: ["phase3", "staging"]
+    core:
+      +materialized: dynamic_table
+      +schema: CORE
+      +snowflake_warehouse: GUARDRAIL_TRANSFORM_WH
+      +target_lag: "5 minutes"
+      +on_configuration_change: apply
+      +tags: ["phase3", "core"]
+    metrics:
+      +materialized: dynamic_table
+      +schema: METRICS
+      +snowflake_warehouse: GUARDRAIL_TRANSFORM_WH
+      +target_lag: "5 minutes"
+      +on_configuration_change: apply
+      +tags: ["phase3", "metrics"]

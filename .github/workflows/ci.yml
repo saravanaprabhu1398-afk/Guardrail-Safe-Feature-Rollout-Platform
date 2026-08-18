@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Contracts, tests, and static checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install locked dependencies
+        run: uv sync --frozen
+
+      - name: Validate event-contract compatibility
+        run: uv run pytest tests/test_event_contracts.py
+
+      - name: Parse the dbt project without warehouse access
+        env:
+          DBT_SNOWFLAKE_ACCOUNT: ci-placeholder
+          DBT_SNOWFLAKE_USER: ci-placeholder
+          DBT_SNOWFLAKE_PAT: ci-placeholder
+          DBT_SNOWFLAKE_ROLE: GUARDRAIL_ENGINEER
+          DBT_SNOWFLAKE_WAREHOUSE: GUARDRAIL_TRANSFORM_WH
+          DBT_SNOWFLAKE_DATABASE: GUARDRAIL
+        run: >-
+          uv run dbt parse
+          --project-dir dbt_guardrail
+          --profiles-dir dbt_guardrail
+
+      - name: Check formatting
+        run: uv run ruff format --check .
+
+      - name: Lint Python
+        run: uv run ruff check .
+
+      - name: Run complete test suite
+        run: uv run pytest
+
+      - name: Validate Docker Compose
+        run: docker compose --profile snowflake config --quiet
+
+  container:
+    name: Build application container
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Build production image
+        run: docker build --tag guardrail-platform:${{ github.sha }} .

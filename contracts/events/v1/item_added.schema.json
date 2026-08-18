@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://guardrail.dev/contracts/events/v1/item_added.schema.json",
+  "title": "Item added event v1",
+  "x-guardrail-event-name": "item_added",
+  "x-guardrail-event-version": 1,
+  "allOf": [
+    { "$ref": "../common/product-event-envelope.v1.schema.json" },
+    {
+      "properties": {
+        "event_name": { "const": "item_added" },
+        "attributes": {
+          "type": "object",
+          "required": ["restaurant_id", "item_id", "price"],
+          "additionalProperties": false,
+          "properties": {
+            "restaurant_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "item_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "price": { "type": "number", "minimum": 0 }
+          }
+        }
+      }
+    }
+  ]
+}

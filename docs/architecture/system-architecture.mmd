@@ -1,0 +1,71 @@
+flowchart TB
+    subgraph product["Simulated product"]
+        direction LR
+        simulator["Marketplace simulator"]
+        assignment_api["Experiment and assignment API"]
+        clients["Simulated web and mobile clients"]
+    end
+
+    subgraph transport["Event transport"]
+        direction LR
+        redpanda["Redpanda / Kafka API"]
+        sink_worker["Manual-commit Snowpipe sink"]
+    end
+
+    subgraph snowflake["Snowflake data platform"]
+        direction TB
+        subgraph ingestion["Ingestion and recovery"]
+            direction LR
+            snowpipe["Snowpipe Streaming"]
+            raw["Raw VARIANT events"]
+            quarantine["Quarantine and replay"]
+            clean["Validated and deduplicated events"]
+        end
+        subgraph measurement["Measurement and decisions"]
+            direction LR
+            core["Assignment, exposure and outcome models"]
+            metrics["Incremental metric models"]
+            integrity["Experiment integrity engine"]
+            statistics["Statistical analysis engine"]
+            decisions["Decision and audit tables"]
+        end
+    end
+
+    subgraph control["Control plane"]
+        direction LR
+        compiler["Metrics-as-code compiler"]
+        rollout["Progressive rollout controller"]
+        ui["Streamlit control UI"]
+    end
+
+    simulator --> clients
+    clients --> assignment_api
+    clients --> redpanda
+    assignment_api --> redpanda
+    redpanda -->|topic, partition and offset| sink_worker
+    sink_worker --> snowpipe
+    snowpipe --> raw
+    raw --> clean
+    raw --> quarantine
+    quarantine -->|correct and replay| clean
+    clean --> core
+    core --> metrics
+    metrics --> integrity
+    metrics --> statistics
+    integrity --> decisions
+    statistics --> decisions
+    compiler --> metrics
+    decisions --> rollout
+    rollout --> assignment_api
+    integrity --> ui
+    statistics --> ui
+    decisions --> ui
+
+    classDef productNode fill:#e8f0ff,stroke:#3765c5,color:#102b5e,stroke-width:2px
+    classDef transportNode fill:#fff4df,stroke:#b66b00,color:#5c3700,stroke-width:2px
+    classDef dataNode fill:#e7f8f0,stroke:#18845b,color:#0d4d36,stroke-width:2px
+    classDef controlNode fill:#f5ebff,stroke:#7e48b5,color:#432262,stroke-width:2px
+    class simulator,assignment_api,clients productNode
+    class redpanda,sink_worker transportNode
+    class snowpipe,raw,quarantine,clean,core,metrics,integrity,statistics,decisions dataNode
+    class compiler,rollout,ui controlNode

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://guardrail.dev/contracts/events/v1/experiment_exposed.schema.json",
+  "title": "Experiment exposed event v1",
+  "x-guardrail-event-name": "experiment_exposed",
+  "x-guardrail-event-version": 1,
+  "allOf": [
+    { "$ref": "../common/product-event-envelope.v1.schema.json" },
+    {
+      "properties": {
+        "event_name": { "const": "experiment_exposed" },
+        "attributes": {
+          "type": "object",
+          "required": ["feature_version", "surface"],
+          "additionalProperties": false,
+          "properties": {
+            "feature_version": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "surface": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "fault_injected": { "const": "variant_flicker" }
+          }
+        }
+      }
+    }
+  ]
+}

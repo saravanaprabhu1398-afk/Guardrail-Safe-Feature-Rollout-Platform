@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://guardrail.dev/contracts/events/v1/payment_failed.schema.json",
+  "title": "Payment failed event v1",
+  "x-guardrail-event-name": "payment_failed",
+  "x-guardrail-event-version": 1,
+  "allOf": [
+    { "$ref": "../common/product-event-envelope.v1.schema.json" },
+    {
+      "properties": {
+        "event_name": { "const": "payment_failed" },
+        "attributes": {
+          "type": "object",
+          "required": ["order_id", "payment_provider", "error_category"],
+          "additionalProperties": false,
+          "properties": {
+            "order_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "payment_provider": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "error_category": { "type": "string", "minLength": 1, "maxLength": 64 }
+          }
+        }
+      }
+    }
+  ]
+}

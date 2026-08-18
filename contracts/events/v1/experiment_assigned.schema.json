@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://guardrail.dev/contracts/events/v1/experiment_assigned.schema.json",
+  "title": "Experiment assigned event v1",
+  "x-guardrail-event-name": "experiment_assigned",
+  "x-guardrail-event-version": 1,
+  "allOf": [
+    { "$ref": "../common/product-event-envelope.v1.schema.json" },
+    {
+      "properties": {
+        "event_name": { "const": "experiment_assigned" },
+        "attributes": {
+          "type": "object",
+          "required": ["bucket", "allocation_version", "assignment_reason"],
+          "additionalProperties": false,
+          "properties": {
+            "bucket": { "type": "integer", "minimum": 0, "maximum": 9999 },
+            "allocation_version": { "type": "integer", "minimum": 1 },
+            "assignment_reason": {
+              "enum": ["deterministic_bucket", "existing_assignment"]
+            }
+          }
+        }
+      }
+    }
+  ]
+}

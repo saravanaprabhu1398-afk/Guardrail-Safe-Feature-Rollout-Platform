@@ -1,0 +1,18 @@
+stateDiagram-v2
+    [*] --> DRAFT
+    DRAFT --> RUNNING_5: launch
+    RUNNING_5 --> RUNNING_25: evidence passes
+    RUNNING_25 --> RUNNING_50: evidence passes
+    RUNNING_50 --> RELEASED: final approval
+
+    RUNNING_5 --> PAUSED: integrity or guardrail failure
+    RUNNING_25 --> PAUSED: integrity or guardrail failure
+    RUNNING_50 --> PAUSED: integrity or guardrail failure
+
+    PAUSED --> RUNNING_5: issue resolved and approved
+    PAUSED --> RUNNING_25: issue resolved and approved
+    PAUSED --> RUNNING_50: issue resolved and approved
+    PAUSED --> TERMINATED: harmful or invalid
+
+    RELEASED --> [*]
+    TERMINATED --> [*]

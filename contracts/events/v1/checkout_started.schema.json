@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://guardrail.dev/contracts/events/v1/checkout_started.schema.json",
+  "title": "Checkout started event v1",
+  "x-guardrail-event-name": "checkout_started",
+  "x-guardrail-event-version": 1,
+  "allOf": [
+    { "$ref": "../common/product-event-envelope.v1.schema.json" },
+    {
+      "properties": {
+        "event_name": { "const": "checkout_started" },
+        "attributes": {
+          "type": "object",
+          "required": ["cart_id", "order_id", "cart_value"],
+          "additionalProperties": false,
+          "properties": {
+            "cart_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "order_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "cart_value": { "type": "number", "minimum": 0 }
+          }
+        }
+      }
+    }
+  ]
+}

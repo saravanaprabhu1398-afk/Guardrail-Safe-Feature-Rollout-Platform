@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://guardrail.dev/contracts/events/v1/delivery_completed.schema.json",
+  "title": "Delivery completed event v1",
+  "x-guardrail-event-name": "delivery_completed",
+  "x-guardrail-event-version": 1,
+  "allOf": [
+    { "$ref": "../common/product-event-envelope.v1.schema.json" },
+    {
+      "properties": {
+        "event_name": { "const": "delivery_completed" },
+        "attributes": {
+          "type": "object",
+          "required": ["order_id", "delivery_minutes"],
+          "additionalProperties": false,
+          "properties": {
+            "order_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "delivery_minutes": { "type": "integer", "minimum": 0, "maximum": 1440 }
+          }
+        }
+      }
+    }
+  ]
+}

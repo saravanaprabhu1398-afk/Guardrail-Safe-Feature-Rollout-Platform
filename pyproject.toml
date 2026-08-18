@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "guardrail-platform"
+version = "0.1.0"
+description = "A Snowflake-powered experimentation and progressive-delivery platform."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "confluent-kafka>=2.12,<3",
+    "fastapi>=0.116,<1",
+    "pydantic>=2.11,<3",
+    "pydantic-settings>=2.10,<3",
+    "snowflake-connector-python>=4.7,<5",
+    "snowpipe-streaming>=1.6,<2",
+    "uvicorn[standard]>=0.35,<1",
+]
+
+[dependency-groups]
+dev = [
+    "dbt-snowflake>=1.12,<1.13",
+    "httpx2>=2,<3",
+    "jsonschema[format]>=4.25,<5",
+    "pytest>=8.4,<9",
+    "pytest-cov>=6,<8",
+    "ruff>=0.12,<1",
+]
+
+[project.scripts]
+guardrail-api = "guardrail.main:run"
+guardrail-dbt = "guardrail.infrastructure.dbt:run"
+guardrail-phase3-smoke = "guardrail.infrastructure.analytics:run_phase3_smoke"
+guardrail-snowflake-check = "guardrail.infrastructure.snowflake:run_check"
+guardrail-snowflake-setup-ingestion = "guardrail.infrastructure.bootstrap:run_ingestion_setup"
+guardrail-phase2-smoke = "guardrail.infrastructure.smoke:run_phase2_smoke"
+guardrail-phase2-replay-smoke = "guardrail.infrastructure.smoke:run_replay_smoke"
+guardrail-redpanda-worker = "guardrail.infrastructure.redpanda:run_worker"
+guardrail-redpanda-smoke = "guardrail.infrastructure.redpanda:run_transport_smoke"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/guardrail"]
+
+[tool.pytest.ini_options]
+addopts = "-q --strict-markers --disable-warnings"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

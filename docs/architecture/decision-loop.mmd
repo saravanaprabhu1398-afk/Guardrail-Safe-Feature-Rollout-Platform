@@ -1,0 +1,17 @@
+sequenceDiagram
+    participant PM as Product Manager
+    participant API as Assignment API
+    participant Client as Simulated Client
+    participant SF as Snowflake Pipeline
+    participant Engine as Integrity and Analysis
+    participant Controller as Rollout Controller
+
+    PM->>API: Create experiment at 5 percent
+    Client->>API: Request variant
+    API-->>Client: Stable control or treatment assignment
+    Client->>SF: Assignment, exposure and outcome events
+    SF->>SF: Validate, deduplicate, model and aggregate
+    SF->>Engine: Metric and data-health snapshots
+    Engine->>Controller: RAMP, CONTINUE, PAUSE or TERMINATE
+    Controller->>API: Apply simulated rollout transition
+    Controller-->>PM: Decision with evidence and audit trail

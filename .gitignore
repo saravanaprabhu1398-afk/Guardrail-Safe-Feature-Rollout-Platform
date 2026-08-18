@@ -1,0 +1,17 @@
+.DS_Store
+.env
+.secrets/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+__pycache__/
+*.py[cod]
+dist/
+build/
+*.egg-info/
+dbt_guardrail/logs/
+dbt_guardrail/target/
+dbt_guardrail/dbt_packages/

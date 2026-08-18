@@ -1,0 +1,19 @@
+{
+  "event_id": "0197a001-0000-7000-8000-000000000006",
+  "event_name": "order_completed",
+  "event_version": 1,
+  "user_id": "user_000001",
+  "anonymous_id": "anon_user_000001",
+  "session_id": "session_user_000001_7",
+  "experiment_id": "new_ranking_algorithm",
+  "variant_id": "treatment",
+  "event_timestamp": "2026-08-06T10:00:36Z",
+  "sent_timestamp": "2026-08-06T10:00:36.020Z",
+  "received_timestamp": "2026-08-06T10:00:36.200Z",
+  "source": "ios",
+  "attributes": {
+    "order_id": "order_user_000001_7",
+    "order_amount": 74.5,
+    "currency": "AED"
+  }
+}
