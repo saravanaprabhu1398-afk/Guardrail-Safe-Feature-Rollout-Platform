@@ -56,6 +56,9 @@ jobs:
       - name: Run complete test suite
         run: uv run pytest
 
+      - name: Run deterministic end-to-end decision demos
+        run: uv run guardrail-phase6-demo --scenario all
+
       - name: Validate Docker Compose
         run: docker compose --profile snowflake config --quiet
 

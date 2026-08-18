@@ -18,6 +18,7 @@ dependencies = [
     "scipy>=1.17,<2",
     "snowflake-connector-python>=4.7,<5",
     "snowpipe-streaming>=1.6,<2",
+    "streamlit>=1.49,<2",
     "uvicorn[standard]>=0.35,<1",
 ]
 
@@ -42,6 +43,9 @@ guardrail-snowflake-setup-analysis = "guardrail.infrastructure.bootstrap:run_ana
 guardrail-snowflake-setup-rollout = "guardrail.infrastructure.bootstrap:run_rollout_setup"
 guardrail-metric-compile = "guardrail.infrastructure.metrics:run_metric_compile"
 guardrail-phase5-decision = "guardrail.infrastructure.rollout:run_phase5_decision"
+guardrail-ui = "guardrail.ui.cli:run"
+guardrail-phase6-demo = "guardrail.infrastructure.demo:run_phase6_demo"
+guardrail-phase6-cost-report = "guardrail.infrastructure.observability:run_cost_report"
 guardrail-phase2-smoke = "guardrail.infrastructure.smoke:run_phase2_smoke"
 guardrail-phase2-replay-smoke = "guardrail.infrastructure.smoke:run_replay_smoke"
 guardrail-redpanda-worker = "guardrail.infrastructure.redpanda:run_worker"

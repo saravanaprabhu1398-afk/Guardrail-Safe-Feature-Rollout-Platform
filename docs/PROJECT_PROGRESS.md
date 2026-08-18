@@ -1,9 +1,9 @@
 # Guardrail Project Progress Tracker
 
 **Last updated:** 2026-08-18
-**Overall completion:** 43 of 50 planned delivery items (86%)
-**Current focus:** Phase 6 UI, chaos demo, and portfolio packaging
-**Delivery status:** On track; no active implementation blocker
+**Overall completion:** 49 of 50 planned delivery items (98%)
+**Current focus:** Record and publish the five-minute Phase 6 demo
+**Delivery status:** On track; final recording requires an interactive browser/recording surface
 
 This tracker records delivered outcomes, verification evidence, remaining scope,
 and risks. The detailed product and architecture specification remains in the
@@ -19,10 +19,46 @@ and risks. The detailed product and architecture specification remains in the
 | 3 — Experiment models and metrics | **Complete** | 7/7 | 100% | Live dbt build, freshness, and analytical smoke gates pass. | Preserve the Phase 3 acceptance as a regression gate. |
 | 4 — Integrity and statistics | **Complete** | 7/7 | 100% | Corrupt and underpowered decisions are blocked and every analysis is reproducibly snapshotted. | Preserve Phase 4 acceptance as a regression gate. |
 | 5 — Metrics and rollout automation | **Complete** | 7/7 | 100% | Versioned metrics compile and policy decisions persist with complete lineage. | Preserve Phase 5 acceptance as a regression gate. |
-| 6 — UI and portfolio packaging | Not started | 0/7 | 0% | The end-to-end decision loop is now available. | Build the Streamlit experiment and results UI. |
-| **Total** | **In progress** | **43/50** | **86%** | Phases 0–5 are complete and live Snowflake acceptance passes. | Begin Phase 6 control UI. |
+| 6 — UI and portfolio packaging | **In progress** | 6/7 | 86% | UI, demos, CI gates, cost analysis, and runbooks pass; recording remains. | Record and publish the five-minute demo. |
+| **Total** | **In progress** | **49/50** | **98%** | The clone-to-demo product path is implemented and tested. | Complete the final recording item. |
 
 ## Latest shipped milestone
+
+### Phase 6 control UI and reproducible portfolio package
+
+Delivered on 2026-08-18:
+
+- [x] Added a Streamlit control plane with experiment creation/launch, integrity and
+  freshness checks, statistical results, visual metric comparison, approval, and
+  immutable decision history workspaces.
+- [x] Added a typed standard-library API client, safe provider error messages, pure UI
+  presenters, native Streamlit rendering tests, container service, and health check.
+- [x] Scripted healthy rollout, corrupt-telemetry false winner, and harmful-guardrail
+  scenarios through the real analyzer, policy evaluator, state machine, and decision
+  service; CI requires all three expected decisions.
+- [x] Added a bounded Snowflake query-history report for failures, execution time, p95
+  latency, overload queueing, scanned bytes, cloud-services credits, and explicitly
+  caveated active-compute estimates.
+- [x] Added local/Snowflake setup, scenario, rollout-operations, data-landing, incident,
+  cost-review, and recording-ready five-minute demo documentation.
+- [ ] Record and publish the five-minute demo video; browser visual QA and recording
+  require an interactive browser/recording surface.
+
+Phase 6 local and live acceptance:
+
+| Check | Observed | Result |
+| --- | --- | --- |
+| Streamlit native render | Title, 4 workspaces, 7 actions, no app exception | Pass |
+| Offline scenarios | `RAMP`, `PAUSE`, `PAUSE`; stable decision/transition IDs | 3/3 pass |
+| Full Python suite | 132 passed | Pass |
+| Compose definition | API, UI, Redpanda, worker profile all valid | Pass |
+| Live query-history sample | 492 queries across 14 warehouse/type slices | Pass |
+| Live execution sample | 95.125 seconds; SELECT p95 921 ms | Recorded |
+| Live query-level cost signals | 0.023530 cloud-services; 0.026425 estimated active compute credits | Caveated |
+
+The in-app browser connection was unavailable during this run, so Streamlit was
+verified through its native app-testing harness and live health endpoint. Screenshot
+QA and the actual recording remain part of the final delivery item.
 
 ### Phase 5 metrics-as-code and rollout automation
 
@@ -386,7 +422,11 @@ Replay batch: `7dd00d5e-abc3-4019-88ec-208851ea7884`
 
 | Verification | Current result | Command or evidence |
 | --- | --- | --- |
-| Complete Python test suite | 118 passed | `uv run pytest` |
+| Complete Python test suite | 132 passed | `uv run pytest` |
+| Phase 6 Streamlit UI regression | Client, presenters, and native four-workspace render passed | `uv run pytest tests/test_ui.py` |
+| Phase 6 deterministic demo gate | Healthy ramps; corrupt and harmful scenarios pause; IDs repeat | `uv run guardrail-phase6-demo --scenario all` |
+| Live Phase 6 cost/performance report | 492 queries in 14 slices with latency, bytes, failures, and caveated credits | `uv run guardrail-phase6-cost-report --lookback-hours 24 --history-limit 500` |
+| Phase 6 container topology | UI/API health checks and Snowflake worker profile validate | `docker compose --profile snowflake config --quiet` |
 | Phase 5 metric and rollout regression suite | 16 passed; schema, compiler, active-policy loading, state, persistence contract, and API paths covered | `uv run pytest tests/test_metrics.py tests/test_rollout.py` |
 | Live Phase 5 control-table deployment | 7 statements applied; 3 tables verified | `uv run guardrail-snowflake-setup-rollout` |
 | Live metric artifact publication | 4 active, deterministic version-1 artifacts; retry remained at 4 rows | `uv run guardrail-metric-compile metrics/*.yml --persist --activate` |
@@ -417,21 +457,18 @@ Replay batch: `7dd00d5e-abc3-4019-88ec-208851ea7884`
 
 ## Active work board
 
-### Completed — Phase 5 metrics-as-code and rollout automation
+### Completed — Phase 6 implementation and packaging
 
-- [x] Define the versioned metric YAML schema.
-- [x] Validate event, entity, attribution, and guardrail references.
-- [x] Compile validated definitions into reviewable Snowflake SQL.
-- [x] Version and activate metric definitions and compiled artifacts.
-- [x] Implement the progressive rollout state machine.
-- [x] Evaluate practical and multi-metric guardrail policies.
-- [x] Persist explainable, snapshot-linked decision and transition records.
+- [x] Build Streamlit experiment configuration and result pages.
+- [x] Visualize integrity, freshness, metrics, and decision history.
+- [x] Script three reproducible demo scenarios.
+- [x] Add CI checks and end-to-end decision tests.
+- [x] Add Snowflake cost and query-performance analysis.
+- [x] Complete setup guides and operational runbooks.
 
-### Next — Phase 6 UI and portfolio packaging
+### Next — Final Phase 6 delivery item
 
-- [ ] Build Streamlit experiment configuration and result pages.
-- [ ] Visualize integrity, freshness, metrics, and decision history.
-- [ ] Script the three reproducible demo scenarios.
+- [ ] Record the five-minute demo, complete screenshot QA, and add its link to README.
 
 ## Risks and decisions requiring attention
 

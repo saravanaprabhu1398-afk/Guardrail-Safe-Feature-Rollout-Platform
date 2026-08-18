@@ -2,11 +2,11 @@
 
 > A Snowflake-powered experimentation and progressive-delivery platform for making safer product-launch decisions.
 
-**Project status:** Phases 0–5 complete; Phase 6 UI and portfolio packaging is next
+**Project status:** Phases 0–5 complete; Phase 6 is 6/7 complete with demo recording remaining
 **Primary focus:** Data engineering, product infrastructure, experimentation, and reliable event processing
 **Reference domain:** A simulated food-delivery marketplace
 
-**Progress:** 43 of 50 delivery items complete (86%) — see the
+**Progress:** 49 of 50 delivery items complete (98%) — see the
 [project progress tracker](docs/PROJECT_PROGRESS.md) for shipped evidence, active
 work, risks, and the next milestone.
 
@@ -87,9 +87,15 @@ The first vertical slice is runnable locally and includes:
   progressive rollout state machine
 - Atomic Snowflake decision and transition audit records linked to the exact Phase 4
   analysis and health snapshots, with API and CLI workflows
+- A Streamlit control plane for experiment setup, integrity, statistical results,
+  metric visualizations, approvals, and decision history
+- Three deterministic end-to-end portfolio scenarios enforced in CI
+- A live Snowflake query cost/performance report with bounded history and explicit
+  estimation caveats
+- Clone-to-demo setup, scenario, rollout-operations, and five-minute recording guides
 
-The Streamlit control UI, reproducible chaos demo, cost analysis, and final portfolio
-packaging remain planned in Phase 6.
+The only remaining planned delivery item is recording and publishing the five-minute
+demo video from the completed script.
 
 ---
 
@@ -713,12 +719,12 @@ The estimated timeline is **6–8 weeks part-time**. Each phase ends with a demo
 
 **Duration:** 1 week
 
-- [ ] Build Streamlit experiment configuration and result pages.
-- [ ] Visualize integrity, freshness, metrics, and decisions.
-- [ ] Script three reproducible demo scenarios.
-- [ ] Add CI checks and end-to-end tests.
-- [ ] Add Snowflake cost and query-performance analysis.
-- [ ] Complete setup guides and operational runbooks.
+- [x] Build Streamlit experiment configuration and result pages.
+- [x] Visualize integrity, freshness, metrics, and decisions.
+- [x] Script three reproducible demo scenarios.
+- [x] Add CI checks and end-to-end tests.
+- [x] Add Snowflake cost and query-performance analysis.
+- [x] Complete setup guides and operational runbooks.
 - [ ] Record a five-minute demo video.
 
 **Exit criterion:** Another developer can clone the repository, deploy the required components, reproduce each scenario, and understand every rollout decision.
@@ -833,6 +839,7 @@ uv run pytest tests/test_event_contracts.py
 uv run ruff check .
 uv run pytest
 uv run uvicorn guardrail.main:app --reload
+uv run guardrail-ui
 ```
 
 Open the interactive API documentation at <http://localhost:8000/docs>.
@@ -884,10 +891,11 @@ uv run guardrail-redpanda-worker
 docker compose up --build
 ```
 
-This starts the API, Redpanda, the topic initializer, and Redpanda Console. The API
+This starts the API, Streamlit control UI, Redpanda, the topic initializer, and
+Redpanda Console. The API
 is available at <http://localhost:8000>, its health endpoint is
 <http://localhost:8000/health>, and the topic/consumer interface is available at
-<http://localhost:8080>.
+<http://localhost:8080>. Guardrail Control is available at <http://localhost:8501>.
 
 Include the Snowflake sink worker when you want Docker-generated events to reach the
 warehouse:
@@ -904,7 +912,8 @@ Snowflake settings from the local `.env` file.
 The [CI workflow](.github/workflows/ci.yml) runs on pushes, pull requests, and manual
 dispatch. Its quality job installs the locked environment, checks contract
 compatibility, formatting, lint, the complete test suite, and Docker Compose. A
-separate job builds the production container without requiring Snowflake credentials.
+deterministic end-to-end job gate also requires all three rollout demo scenarios to
+pass. A separate job builds the production container without requiring Snowflake credentials.
 Third-party actions are pinned to immutable release commits and the workflow receives
 read-only repository permissions.
 
@@ -963,6 +972,7 @@ uv run guardrail-phase4-analysis ranking_phase3_20260806
 uv run guardrail-snowflake-setup-rollout
 uv run guardrail-metric-compile metrics/*.yml --persist --activate
 uv run guardrail-phase5-decision ranking_phase3_20260806 --approved-by product-owner
+uv run guardrail-phase6-cost-report --lookback-hours 24 --history-limit 500
 ```
 
 The build creates one `CLEAN` staging view, six `CORE` Dynamic Tables, and two
@@ -1006,6 +1016,12 @@ The command exits with status 2 for a
 safety action (`PAUSE` or `TERMINATE`); that status is expected for the deliberately
 faulty acceptance experiment. Identical retries reuse the same content-addressed
 decision and transition IDs.
+
+The complete operator path is documented in the [runbook index](docs/runbooks/README.md).
+Use the [scenario guide](docs/runbooks/demo-scenarios.md) for offline and live acceptance,
+the [rollout operations guide](docs/runbooks/rollout-operations.md) for decision order
+and Snowflake landing tables, and the
+[five-minute script](docs/demo/five-minute-demo-script.md) when recording the demo.
 
 ### Setup required from the project owner
 

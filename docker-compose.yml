@@ -76,6 +76,17 @@ services:
       REDPANDA_BOOTSTRAP_SERVERS: redpanda:9092
       REDPANDA_TOPIC: guardrail.product-events.v1
       REDPANDA_CLIENT_ID: guardrail-api
+      SNOWFLAKE_ACCOUNT: ${SNOWFLAKE_ACCOUNT:-}
+      SNOWFLAKE_USER: ${SNOWFLAKE_USER:-}
+      SNOWFLAKE_ROLE: ${SNOWFLAKE_ROLE:-GUARDRAIL_ENGINEER}
+      SNOWFLAKE_WAREHOUSE: ${SNOWFLAKE_WAREHOUSE:-GUARDRAIL_INGEST_WH}
+      SNOWFLAKE_TRANSFORM_WAREHOUSE: ${SNOWFLAKE_TRANSFORM_WAREHOUSE:-GUARDRAIL_TRANSFORM_WH}
+      SNOWFLAKE_DATABASE: ${SNOWFLAKE_DATABASE:-GUARDRAIL}
+      SNOWFLAKE_SCHEMA: ${SNOWFLAKE_SCHEMA:-RAW}
+      SNOWFLAKE_AUTH_METHOD: PAT
+      SNOWFLAKE_PAT_FILE: .secrets/snowflake_pat
+    volumes:
+      - ./.secrets:/app/.secrets:ro
     ports:
       - "8000:8000"
     depends_on:
@@ -89,6 +100,29 @@ services:
         - python
         - -c
         - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  guardrail-ui:
+    build: .
+    command: ["uv", "run", "--no-dev", "guardrail-ui"]
+    environment:
+      GUARDRAIL_API_URL: http://guardrail-api:8000
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+    ports:
+      - "8501:8501"
+    depends_on:
+      guardrail-api:
+        condition: service_healthy
+    networks:
+      - guardrail
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"
       interval: 10s
       timeout: 3s
       retries: 5
