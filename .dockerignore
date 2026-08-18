@@ -1,5 +1,7 @@
 .git
 .github
+.secrets
+.terraform
 .venv
 .pytest_cache
 .ruff_cache
@@ -10,3 +12,11 @@ htmlcov
 tests
 docs
 .env
+*.tfstate*
+*.tfplan
+.DS_Store
+build
+dist
+dbt_guardrail/logs
+dbt_guardrail/target
+dbt_guardrail/dbt_packages

@@ -4,18 +4,23 @@ build-backend = "hatchling.build"
 
 [project]
 name = "guardrail-platform"
-version = "0.1.0"
+version = "0.2.0"
 description = "A Snowflake-powered experimentation and progressive-delivery platform."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "alembic>=1.16,<2",
     "confluent-kafka>=2.12,<3",
     "fastapi>=0.116,<1",
     "jsonschema[format]>=4.25,<5",
+    "pyjwt[crypto]>=2.10,<3",
+    "psycopg[binary]>=3.2,<4",
+    "prometheus-client>=0.22,<1",
     "pydantic>=2.11,<3",
     "pydantic-settings>=2.10,<3",
     "pyyaml>=6,<7",
     "scipy>=1.17,<2",
+    "sqlalchemy>=2.0,<3",
     "snowflake-connector-python>=4.7,<5",
     "snowpipe-streaming>=1.6,<2",
     "streamlit>=1.49,<2",
@@ -26,6 +31,7 @@ dependencies = [
 dev = [
     "dbt-snowflake>=1.12,<1.13",
     "httpx2>=2,<3",
+    "pip-audit>=2.9,<3",
     "pytest>=8.4,<9",
     "pytest-cov>=6,<8",
     "ruff>=0.12,<1",
@@ -46,6 +52,8 @@ guardrail-phase5-decision = "guardrail.infrastructure.rollout:run_phase5_decisio
 guardrail-ui = "guardrail.ui.cli:run"
 guardrail-phase6-demo = "guardrail.infrastructure.demo:run_phase6_demo"
 guardrail-phase6-cost-report = "guardrail.infrastructure.observability:run_cost_report"
+guardrail-db-upgrade = "guardrail.infrastructure.postgres:run_migrations"
+guardrail-outbox-worker = "guardrail.infrastructure.outbox:run_worker"
 guardrail-phase2-smoke = "guardrail.infrastructure.smoke:run_phase2_smoke"
 guardrail-phase2-replay-smoke = "guardrail.infrastructure.smoke:run_replay_smoke"
 guardrail-redpanda-worker = "guardrail.infrastructure.redpanda:run_worker"
@@ -57,6 +65,7 @@ packages = ["src/guardrail"]
 [tool.pytest.ini_options]
 addopts = "-q --strict-markers --disable-warnings"
 testpaths = ["tests"]
+markers = ["postgres: requires a real PostgreSQL service"]
 
 [tool.ruff]
 line-length = 100

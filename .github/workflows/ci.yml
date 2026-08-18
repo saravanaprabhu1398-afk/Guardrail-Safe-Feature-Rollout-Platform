@@ -17,6 +17,23 @@ jobs:
     name: Contracts, tests, and static checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      DATABASE_URL: postgresql+psycopg://guardrail:guardrail-ci@localhost:5432/guardrail
+      GUARDRAIL_POSTGRES_TEST_URL: postgresql+psycopg://guardrail:guardrail-ci@localhost:5432/guardrail
+    services:
+      postgres:
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_DB: guardrail
+          POSTGRES_USER: guardrail
+          POSTGRES_PASSWORD: guardrail-ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U guardrail -d guardrail"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -53,14 +70,33 @@ jobs:
       - name: Lint Python
         run: uv run ruff check .
 
+      - name: Apply PostgreSQL migrations
+        run: uv run guardrail-db-upgrade
+
       - name: Run complete test suite
         run: uv run pytest
+
+      - name: Audit locked production dependencies
+        run: >-
+          uv export --frozen --no-dev --format requirements-txt --no-emit-project
+          | uv run pip-audit --requirement /dev/stdin
 
       - name: Run deterministic end-to-end decision demos
         run: uv run guardrail-phase6-demo --scenario all
 
       - name: Validate Docker Compose
         run: docker compose --profile snowflake config --quiet
+
+      - name: Lint production Helm chart
+        run: >-
+          docker run --rm -v "$PWD:/workspace" -w /workspace
+          alpine/helm:4.2.3 lint deploy/helm/guardrail
+
+      - name: Check Terraform formatting
+        run: >-
+          docker run --rm -v "$PWD:/workspace" -w /workspace
+          hashicorp/terraform:1.15.8
+          fmt -check -recursive infrastructure/terraform
 
   container:
     name: Build application container
@@ -72,3 +108,8 @@ jobs:
 
       - name: Build production image
         run: docker build --tag guardrail-platform:${{ github.sha }} .
+
+      - name: Verify container runs as the unprivileged service account
+        run: >-
+          test "$(docker run --rm --entrypoint id guardrail-platform:${{ github.sha }} -u)"
+          = "10001"

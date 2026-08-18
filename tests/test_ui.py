@@ -35,7 +35,11 @@ def test_ui_client_builds_encoded_requests_and_payloads() -> None:
         requests.append((request, timeout))
         return FakeResponse({"experiment_id": "ranking test"})
 
-    client = GuardrailApiClient("http://api:8000/", opener=opener)
+    client = GuardrailApiClient(
+        "http://api:8000/",
+        opener=opener,
+        access_token="signed-token",
+    )
 
     client.apply_transition(
         "ranking test",
@@ -46,6 +50,7 @@ def test_ui_client_builds_encoded_requests_and_payloads() -> None:
     request, timeout = requests[0]
     assert request.full_url == "http://api:8000/experiments/ranking%20test/transitions"
     assert request.method == "POST"
+    assert request.headers["Authorization"] == "Bearer signed-token"
     assert json.loads(request.data) == {
         "requested_by": "guardrail-ui",
         "approved_by": "product-owner",

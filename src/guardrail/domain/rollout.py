@@ -123,6 +123,18 @@ class DecisionRepository(Protocol):
     def list_decisions(self, experiment_id: str) -> tuple[RolloutDecisionRecord, ...]: ...
 
 
+class AtomicRolloutRepository(Protocol):
+    """Persists a decision, transition, and state mutation in one transaction."""
+
+    def persist_outcome_and_apply(
+        self,
+        decision: RolloutDecisionRecord,
+        transition: StateTransitionRecord,
+        *,
+        treatment_percentage: int,
+    ) -> tuple[RolloutDecisionRecord, StateTransitionRecord, Experiment]: ...
+
+
 class RolloutWorkflow(Protocol):
     def evaluate_and_transition(
         self, experiment_id: str, request: TransitionRequest

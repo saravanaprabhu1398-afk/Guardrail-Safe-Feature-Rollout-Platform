@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 
 from guardrail.domain.experiments import Assignment, RolloutState, Variant, utc_now
-from guardrail.services.store import InMemoryExperimentStore, InvalidExperimentStateError
+from guardrail.services.store import ExperimentStore, InvalidExperimentStateError
 
 
 class AssignmentService:
@@ -14,7 +14,7 @@ class AssignmentService:
         RolloutState.RELEASED,
     }
 
-    def __init__(self, store: InMemoryExperimentStore) -> None:
+    def __init__(self, store: ExperimentStore) -> None:
         self._store = store
 
     @staticmethod

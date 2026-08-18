@@ -1,0 +1,98 @@
+image:
+  repository: ghcr.io/example/guardrail-platform
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+runtime:
+  environment: production
+  corsOrigins: https://guardrail.example.com
+  trustedHosts: guardrail-api.example.com,guardrail.example.com
+  oidcIssuer: https://identity.example.com
+  oidcAudience: guardrail-api
+  oidcJwksUrl: https://identity.example.com/.well-known/jwks.json
+  oidcRolesClaim: roles
+  redpandaBootstrapServers: redpanda.example.com:9092
+  redpandaTopic: guardrail.product-events.v1
+  redpandaSecurityProtocol: SASL_SSL
+  redpandaSaslMechanism: SCRAM-SHA-256
+  redpandaSaslUsername: guardrail-service
+  snowflakeAccount: ORG-ACCOUNT
+  snowflakeUser: GUARDRAIL_SERVICE
+  snowflakeRole: GUARDRAIL_ENGINEER
+  snowflakeWarehouse: GUARDRAIL_INGEST_WH
+  snowflakeTransformWarehouse: GUARDRAIL_TRANSFORM_WH
+  snowflakeDatabase: GUARDRAIL
+
+existingSecrets:
+  database:
+    name: guardrail-database
+    urlKey: database-url
+  snowflake:
+    name: guardrail-snowflake
+    patKey: pat
+  redpanda:
+    name: guardrail-redpanda
+    passwordKey: sasl-password
+
+api:
+  replicas: 2
+  service:
+    type: ClusterIP
+    port: 8000
+  resources:
+    requests: {cpu: 200m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+ui:
+  enabled: true
+  replicas: 1
+  service:
+    type: ClusterIP
+    port: 8501
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+
+workers:
+  outbox:
+    enabled: true
+    replicas: 1
+  eventSink:
+    enabled: true
+    replicas: 1
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: guardrail.example.com
+  apiHost: guardrail-api.example.com
+  tlsSecretName: guardrail-tls
+
+networkPolicy:
+  enabled: false
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

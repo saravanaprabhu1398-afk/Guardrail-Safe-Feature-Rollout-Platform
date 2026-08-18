@@ -1,0 +1,58 @@
+{{- $root := . -}}
+{{- range $name, $worker := dict "outbox" .Values.workers.outbox "event-sink" .Values.workers.eventSink }}
+{{- if $worker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "guardrail.fullname" $root }}-{{ $name }}
+  labels:
+    {{- include "guardrail.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  replicas: {{ $worker.replicas }}
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      {{- include "guardrail.selectorLabels" $root | nindent 6 }}
+      app.kubernetes.io/component: {{ $name }}
+  template:
+    metadata:
+      labels:
+        {{- include "guardrail.selectorLabels" $root | nindent 8 }}
+        app.kubernetes.io/component: {{ $name }}
+      annotations:
+        checksum/config: {{ include (print $root.Template.BasePath "/configmap.yaml") $root | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "guardrail.serviceAccountName" $root }}
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, fsGroup: 10001}
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: {{ $name }}
+          image: {{ include "guardrail.image" $root | quote }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          command:
+            {{- if eq $name "outbox" }}
+            ["guardrail-outbox-worker"]
+            {{- else }}
+            ["guardrail-redpanda-worker"]
+            {{- end }}
+          securityContext:
+            {{- include "guardrail.containerSecurityContext" $root | nindent 12 }}
+          envFrom:
+            - configMapRef: {name: {{ include "guardrail.fullname" $root }}}
+          env:
+            {{- include "guardrail.databaseEnv" $root | nindent 12 }}
+            {{- include "guardrail.redpandaSecretEnv" $root | nindent 12 }}
+          resources:
+            {{- toYaml $root.Values.workers.resources | nindent 12 }}
+          volumeMounts:
+            - {name: snowflake-pat, mountPath: /var/run/guardrail-snowflake, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        {{- include "guardrail.snowflakeVolume" $root | nindent 8 }}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+---
+{{- end }}
+{{- end }}

@@ -12,6 +12,12 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.auto.tfvars
+terraform.tfvars
 dbt_guardrail/logs/
 dbt_guardrail/target/
 dbt_guardrail/dbt_packages/

@@ -6,8 +6,27 @@ networks:
 
 volumes:
   redpanda-data:
+  postgres-data:
 
 services:
+  postgres:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_DB: guardrail
+      POSTGRES_USER: guardrail
+      POSTGRES_PASSWORD: local-guardrail-password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - guardrail
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U guardrail -d guardrail"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:v26.1.14
     command:
@@ -72,6 +91,9 @@ services:
   guardrail-api:
     build: .
     environment:
+      GUARDRAIL_ENV: local
+      GUARDRAIL_STORE_BACKEND: postgres
+      DATABASE_URL: postgresql+psycopg://guardrail:local-guardrail-password@postgres:5432/guardrail
       GUARDRAIL_EVENT_TRANSPORT: redpanda
       REDPANDA_BOOTSTRAP_SERVERS: redpanda:9092
       REDPANDA_TOPIC: guardrail.product-events.v1
@@ -90,6 +112,8 @@ services:
     ports:
       - "8000:8000"
     depends_on:
+      guardrail-migration:
+        condition: service_completed_successfully
       redpanda-topic-init:
         condition: service_completed_successfully
     networks:
@@ -99,14 +123,52 @@ services:
         - CMD
         - python
         - -c
-        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"
       interval: 10s
       timeout: 3s
       retries: 5
 
+  guardrail-migration:
+    build: .
+    command: ["guardrail-db-upgrade"]
+    environment:
+      GUARDRAIL_ENV: local
+      GUARDRAIL_STORE_BACKEND: postgres
+      DATABASE_URL: postgresql+psycopg://guardrail:local-guardrail-password@postgres:5432/guardrail
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - guardrail
+
+  guardrail-outbox-worker:
+    profiles: ["snowflake"]
+    build: .
+    command: ["guardrail-outbox-worker"]
+    environment:
+      GUARDRAIL_ENV: local
+      GUARDRAIL_STORE_BACKEND: postgres
+      DATABASE_URL: postgresql+psycopg://guardrail:local-guardrail-password@postgres:5432/guardrail
+      SNOWFLAKE_ACCOUNT: ${SNOWFLAKE_ACCOUNT:-}
+      SNOWFLAKE_USER: ${SNOWFLAKE_USER:-}
+      SNOWFLAKE_ROLE: ${SNOWFLAKE_ROLE:-GUARDRAIL_ENGINEER}
+      SNOWFLAKE_WAREHOUSE: ${SNOWFLAKE_TRANSFORM_WAREHOUSE:-GUARDRAIL_TRANSFORM_WH}
+      SNOWFLAKE_TRANSFORM_WAREHOUSE: ${SNOWFLAKE_TRANSFORM_WAREHOUSE:-GUARDRAIL_TRANSFORM_WH}
+      SNOWFLAKE_DATABASE: ${SNOWFLAKE_DATABASE:-GUARDRAIL}
+      SNOWFLAKE_SCHEMA: CONTROL
+      SNOWFLAKE_AUTH_METHOD: PAT
+      SNOWFLAKE_PAT_FILE: .secrets/snowflake_pat
+    volumes:
+      - ./.secrets:/app/.secrets:ro
+    depends_on:
+      guardrail-migration:
+        condition: service_completed_successfully
+    networks:
+      - guardrail
+
   guardrail-ui:
     build: .
-    command: ["uv", "run", "--no-dev", "guardrail-ui"]
+    command: ["guardrail-ui"]
     environment:
       GUARDRAIL_API_URL: http://guardrail-api:8000
       STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
@@ -130,7 +192,7 @@ services:
   guardrail-worker:
     profiles: ["snowflake"]
     build: .
-    command: ["uv", "run", "--no-dev", "guardrail-redpanda-worker"]
+    command: ["guardrail-redpanda-worker"]
     environment:
       PYTHONUNBUFFERED: "1"
       REDPANDA_BOOTSTRAP_SERVERS: redpanda:9092

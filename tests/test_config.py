@@ -1,8 +1,9 @@
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
-from guardrail.config import SnowflakeSettings
+from guardrail.config import RuntimeSettings, SnowflakeSettings, TransportSettings
 from guardrail.infrastructure.snowflake import connection_parameters
 
 
@@ -39,3 +40,41 @@ def test_connection_context_can_be_deferred_until_bootstrap(tmp_path: Path) -> N
     assert "warehouse" not in parameters
     assert "database" not in parameters
     assert "schema" not in parameters
+
+
+def test_production_runtime_requires_postgres_and_oidc() -> None:
+    with pytest.raises(ValidationError, match="postgres"):
+        RuntimeSettings(guardrail_env="production", _env_file=None)
+
+    configured = RuntimeSettings(
+        guardrail_env="production",
+        guardrail_store_backend="postgres",
+        database_url=("postgresql+psycopg://guardrail:secret@postgres/guardrail?sslmode=require"),
+        auth_enabled=True,
+        oidc_issuer="https://identity.example.com/",
+        oidc_audience="guardrail-api",
+        oidc_jwks_url="https://identity.example.com/.well-known/jwks.json",
+        cors_origins="https://guardrail.example.com",
+        trusted_hosts="guardrail.example.com",
+        _env_file=None,
+    )
+
+    assert configured.database_url_value is not None
+    assert "secret" not in repr(configured)
+
+
+def test_production_transport_requires_tls_and_sasl_credentials_are_secret() -> None:
+    with pytest.raises(ValidationError, match="requires TLS"):
+        TransportSettings(guardrail_env="production", _env_file=None)
+
+    settings = TransportSettings(
+        guardrail_env="production",
+        guardrail_event_transport="redpanda",
+        redpanda_security_protocol="SASL_SSL",
+        redpanda_sasl_username="guardrail-service",
+        redpanda_sasl_password="broker-secret",
+        _env_file=None,
+    )
+
+    assert settings.redpanda_sasl_password_value == "broker-secret"
+    assert "broker-secret" not in repr(settings)

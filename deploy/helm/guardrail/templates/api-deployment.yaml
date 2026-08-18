@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "guardrail.fullname" . }}-api
+  labels:
+    {{- include "guardrail.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  selector:
+    matchLabels:
+      {{- include "guardrail.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        {{- include "guardrail.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "guardrail.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, fsGroup: 10001}
+      terminationGracePeriodSeconds: 30
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: api
+          image: {{ include "guardrail.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["guardrail-api"]
+          securityContext:
+            {{- include "guardrail.containerSecurityContext" . | nindent 12 }}
+          envFrom:
+            - configMapRef: {name: {{ include "guardrail.fullname" . }}}
+          env:
+            {{- include "guardrail.databaseEnv" . | nindent 12 }}
+            {{- include "guardrail.redpandaSecretEnv" . | nindent 12 }}
+          ports:
+            - {name: http, containerPort: 8000, protocol: TCP}
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+              httpHeaders: [{name: Host, value: {{ printf "%s-api" (include "guardrail.fullname" .) | quote }}}]
+            failureThreshold: 30
+            periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+              httpHeaders: [{name: Host, value: {{ printf "%s-api" (include "guardrail.fullname" .) | quote }}}]
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+              httpHeaders: [{name: Host, value: {{ printf "%s-api" (include "guardrail.fullname" .) | quote }}}]
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          volumeMounts:
+            - {name: snowflake-pat, mountPath: /var/run/guardrail-snowflake, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        {{- include "guardrail.snowflakeVolume" . | nindent 8 }}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{ toYaml . | nindent 8 }}
+      {{- end }}

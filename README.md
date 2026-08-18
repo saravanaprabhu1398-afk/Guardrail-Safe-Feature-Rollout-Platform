@@ -2,13 +2,13 @@
 
 > A Snowflake-powered experimentation and progressive-delivery platform for making safer product-launch decisions.
 
-**Project status:** Phases 0–5 complete; Phase 6 is 6/7 complete with demo recording remaining
+**Project status:** Product phases 0–6 complete; production runtime implemented with
+environment acceptance gates pending
 **Primary focus:** Data engineering, product infrastructure, experimentation, and reliable event processing
 **Reference domain:** A simulated food-delivery marketplace
 
-**Progress:** 49 of 50 delivery items complete (98%) — see the
-[project progress tracker](docs/PROJECT_PROGRESS.md) for shipped evidence, active
-work, risks, and the next milestone.
+See the [project progress tracker](docs/PROJECT_PROGRESS.md) for shipped evidence,
+active work, risks, and production sign-off status.
 
 Guardrail is a portfolio project that models the kind of internal data product used by product-led companies to test and release customer-facing features. Rather than stopping at ingestion and dashboards, Guardrail connects the complete decision loop:
 
@@ -30,7 +30,7 @@ The first vertical slice is runnable locally and includes:
 
 - FastAPI experiment creation, lookup, and launch endpoints
 - Deterministic SHA-256 bucket assignment with stable allocation versions
-- A thread-safe in-memory development store
+- A thread-safe in-memory development store plus a transactional PostgreSQL production store
 - Versioned Pydantic experiment and product-event contracts
 - Synthetic customer journeys for a food-delivery marketplace
 - Configurable duplicate, late-event, exposure-loss, and variant-flicker faults
@@ -54,9 +54,16 @@ The first vertical slice is runnable locally and includes:
 - A strict Draft 2020-12 event envelope, nine version-1 schemas, and nine valid examples
 - Contract compatibility tests spanning JSON Schema, Pydantic, simulator output, and
   the Snowflake event registry
-- Four accepted ADRs covering identity, delivery semantics, raw retention, and the
-  source-offset commit boundary
+- Five accepted ADRs covering identity, delivery semantics, raw retention, the
+  source-offset commit boundary, and the production control plane
 - GitHub Actions quality and production-container build jobs with pinned actions
+- OIDC authentication, endpoint-level RBAC, request limits, security headers, and fail-closed
+  production configuration
+- Atomic PostgreSQL rollout decisions/state changes with a lease-based Snowflake outbox,
+  exponential retry, and dead-letter handling
+- Prometheus HTTP metrics, structured JSON logging, liveness/readiness probes, and request IDs
+- A non-root, read-only-root-filesystem container and a cloud-neutral Helm/Terraform deployment
+  with migration jobs, HPA, PDB, resources, and external secret references
 - A dbt 1.12 analytics DAG with typed staging and explicit model grains
 - Assignment, exposure, outcome, user-identity, and session facts in Snowflake
 - Eligible-exposure filtering and most-recent-touch 24-hour event-time attribution
@@ -94,8 +101,9 @@ The first vertical slice is runnable locally and includes:
   estimation caveats
 - Clone-to-demo setup, scenario, rollout-operations, and five-minute recording guides
 
-The only remaining planned delivery item is recording and publishing the five-minute
-demo video from the completed script.
+The codebase now has a production-capable runtime baseline. Customer-traffic readiness still
+requires the environment-specific restore, load, identity, network, alerting, canary, and rollback
+evidence listed in the [production acceptance runbook](docs/runbooks/production-deployment.md).
 
 ---
 
@@ -182,9 +190,11 @@ Guardrail does not directly modify a real production system. For the portfolio i
 | Statistics | SciPy / Statsmodels or reviewed SQL implementations | Confidence intervals, proportion tests, Welch's t-test, and power calculations |
 | Control UI | Streamlit | Lightweight experiment setup, health, results, and decision-history UI |
 | Local environment | Docker Compose | Repeatable API, simulator, Redpanda, and UI development environment |
+| Production runtime | Kubernetes + managed PostgreSQL/Redpanda | Durable, horizontally scalable control and event planes |
+| Deployment | Helm + Terraform | Cloud-neutral release, migration, scaling, and policy resources |
 | Testing | Pytest + dbt tests | Unit, contract, data, integration, and chaos tests |
 | CI/CD | GitHub Actions | Linting, tests, dbt validation, and deployment checks |
-| Infrastructure | Terraform, introduced after the MVP | Repeatable Snowflake roles, warehouses, schemas, and grants |
+| Infrastructure | Terraform | Repeatable Kubernetes application releases; existing Snowflake bootstrap remains SQL-managed |
 | Documentation | Markdown + Mermaid | Architecture, decisions, runbooks, and diagrams |
 
 ### Why Snowflake is central
@@ -891,10 +901,10 @@ uv run guardrail-redpanda-worker
 docker compose up --build
 ```
 
-This starts the API, Streamlit control UI, Redpanda, the topic initializer, and
-Redpanda Console. The API
+This starts PostgreSQL, its migration job, the API, Streamlit control UI, Redpanda,
+the topic initializer, and Redpanda Console. The API
 is available at <http://localhost:8000>, its health endpoint is
-<http://localhost:8000/health>, and the topic/consumer interface is available at
+<http://localhost:8000/health/ready>, and the topic/consumer interface is available at
 <http://localhost:8080>. Guardrail Control is available at <http://localhost:8501>.
 
 Include the Snowflake sink worker when you want Docker-generated events to reach the
@@ -904,18 +914,26 @@ warehouse:
 docker compose --profile snowflake up --build
 ```
 
-The worker mounts the ignored `.secrets` directory read-only and obtains non-secret
-Snowflake settings from the local `.env` file.
+The event sink and rollout outbox workers mount the ignored `.secrets` directory read-only and
+obtain non-secret Snowflake settings from the local `.env` file.
 
 ### Continuous integration
 
 The [CI workflow](.github/workflows/ci.yml) runs on pushes, pull requests, and manual
 dispatch. Its quality job installs the locked environment, checks contract
-compatibility, formatting, lint, the complete test suite, and Docker Compose. A
+compatibility, PostgreSQL migrations/integration, formatting, lint, the complete test suite,
+Docker Compose, the Helm chart, and Terraform formatting. A
 deterministic end-to-end job gate also requires all three rollout demo scenarios to
 pass. A separate job builds the production container without requiring Snowflake credentials.
 Third-party actions are pinned to immutable release commits and the workflow receives
 read-only repository permissions.
+
+### Deploy the production runtime
+
+The [production deployment and acceptance runbook](docs/runbooks/production-deployment.md)
+documents managed-service prerequisites, OIDC roles, database landing tables, Terraform/Helm
+installation, manual validation, operational queries, rollback rules, and the gates that must pass
+before customer traffic is permitted.
 
 ### Try the first experiment
 
@@ -1049,9 +1067,8 @@ network policy.
 
 ## Non-goals for the initial release
 
-The following are intentionally excluded until the six implementation phases are complete:
+The following remain intentionally outside this platform baseline:
 
-- Kubernetes deployment
 - Multi-language feature-flag SDKs
 - A production-grade React frontend
 - Apache Flink or a second streaming engine

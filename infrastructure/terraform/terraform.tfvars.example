@@ -1,0 +1,17 @@
+kubeconfig_context          = "production-cluster"
+image_repository            = "ghcr.io/acme/guardrail-platform"
+image_tag                   = "git-sha-immutable-tag"
+oidc_issuer                 = "https://identity.example.com"
+oidc_audience               = "guardrail-api"
+oidc_jwks_url               = "https://identity.example.com/.well-known/jwks.json"
+cors_origins                = "https://guardrail.example.com"
+trusted_hosts               = "guardrail.example.com,guardrail-api.example.com"
+redpanda_bootstrap_servers  = "redpanda.example.com:9092"
+redpanda_sasl_username      = "guardrail-service"
+snowflake_account           = "ORG-ACCOUNT"
+snowflake_user              = "GUARDRAIL_SERVICE"
+ingress_enabled             = true
+ingress_class_name          = "nginx"
+ui_host                     = "guardrail.example.com"
+api_host                    = "guardrail-api.example.com"
+network_policy_enabled      = false

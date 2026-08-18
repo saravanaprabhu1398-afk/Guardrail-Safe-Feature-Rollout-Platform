@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "guardrail.fullname" . }}
+  labels:
+    {{- include "guardrail.labels" . | nindent 4 }}
+data:
+  GUARDRAIL_ENV: {{ .Values.runtime.environment | quote }}
+  GUARDRAIL_STORE_BACKEND: "postgres"
+  AUTH_ENABLED: "true"
+  OIDC_ISSUER: {{ required "runtime.oidcIssuer is required" .Values.runtime.oidcIssuer | quote }}
+  OIDC_AUDIENCE: {{ required "runtime.oidcAudience is required" .Values.runtime.oidcAudience | quote }}
+  OIDC_JWKS_URL: {{ required "runtime.oidcJwksUrl is required" .Values.runtime.oidcJwksUrl | quote }}
+  OIDC_ROLES_CLAIM: {{ .Values.runtime.oidcRolesClaim | quote }}
+  CORS_ORIGINS: {{ .Values.runtime.corsOrigins | quote }}
+  TRUSTED_HOSTS: {{ printf "%s,%s" .Values.runtime.trustedHosts (printf "%s-api" (include "guardrail.fullname" .)) | quote }}
+  GUARDRAIL_EVENT_TRANSPORT: "redpanda"
+  REDPANDA_BOOTSTRAP_SERVERS: {{ .Values.runtime.redpandaBootstrapServers | quote }}
+  REDPANDA_TOPIC: {{ .Values.runtime.redpandaTopic | quote }}
+  REDPANDA_SECURITY_PROTOCOL: {{ .Values.runtime.redpandaSecurityProtocol | quote }}
+  REDPANDA_SASL_MECHANISM: {{ .Values.runtime.redpandaSaslMechanism | quote }}
+  REDPANDA_SASL_USERNAME: {{ .Values.runtime.redpandaSaslUsername | quote }}
+  SNOWFLAKE_ACCOUNT: {{ .Values.runtime.snowflakeAccount | quote }}
+  SNOWFLAKE_USER: {{ .Values.runtime.snowflakeUser | quote }}
+  SNOWFLAKE_ROLE: {{ .Values.runtime.snowflakeRole | quote }}
+  SNOWFLAKE_WAREHOUSE: {{ .Values.runtime.snowflakeWarehouse | quote }}
+  SNOWFLAKE_TRANSFORM_WAREHOUSE: {{ .Values.runtime.snowflakeTransformWarehouse | quote }}
+  SNOWFLAKE_DATABASE: {{ .Values.runtime.snowflakeDatabase | quote }}
+  SNOWFLAKE_SCHEMA: "RAW"
+  SNOWFLAKE_AUTH_METHOD: "PAT"
+  SNOWFLAKE_PAT_FILE: "/var/run/guardrail-snowflake/pat"
+  STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"

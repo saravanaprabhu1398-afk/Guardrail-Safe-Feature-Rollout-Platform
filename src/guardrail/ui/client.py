@@ -21,10 +21,12 @@ class GuardrailApiClient:
         *,
         opener: Callable[..., Any] = urlopen,
         timeout_seconds: float = 30.0,
+        access_token: str | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._opener = opener
         self._timeout_seconds = timeout_seconds
+        self._access_token = access_token
 
     def create_experiment(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request("POST", "/experiments", payload)
@@ -70,10 +72,13 @@ class GuardrailApiClient:
         payload: dict[str, Any] | None = None,
     ) -> Any:
         body = json.dumps(payload).encode() if payload is not None else None
+        headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        if self._access_token:
+            headers["Authorization"] = f"Bearer {self._access_token}"
         request = Request(
             f"{self._base_url}{path}",
             data=body,
-            headers={"Accept": "application/json", "Content-Type": "application/json"},
+            headers=headers,
             method=method,
         )
         try:

@@ -14,6 +14,7 @@ from guardrail.domain.analysis import (
 from guardrail.domain.experiments import Experiment, RolloutState
 from guardrail.domain.metrics import DecisionRuleKind, MetricDefinition, MetricRole
 from guardrail.domain.rollout import (
+    AtomicRolloutRepository,
     DecisionEvidenceRepository,
     DecisionRepository,
     GuardrailCheckName,
@@ -29,7 +30,7 @@ from guardrail.domain.rollout import (
     TransitionRequest,
 )
 from guardrail.services.analysis import ExperimentAnalysisService
-from guardrail.services.store import InMemoryExperimentStore
+from guardrail.services.store import ExperimentStore
 
 ROLLOUT_POLICY_VERSION = "phase5-rollout-v1"
 
@@ -307,10 +308,11 @@ class RolloutService:
 
     def __init__(
         self,
-        store: InMemoryExperimentStore,
+        store: ExperimentStore,
         analysis_service: ExperimentAnalysisService,
         evidence_repository: DecisionEvidenceRepository,
         decision_repository: DecisionRepository,
+        atomic_repository: AtomicRolloutRepository | None = None,
         evaluator: RolloutPolicyEvaluator | None = None,
         state_machine: RolloutStateMachine | None = None,
     ) -> None:
@@ -318,6 +320,7 @@ class RolloutService:
         self._analysis_service = analysis_service
         self._evidence_repository = evidence_repository
         self._decision_repository = decision_repository
+        self._atomic_repository = atomic_repository
         self._evaluator = evaluator or RolloutPolicyEvaluator()
         self._state_machine = state_machine or RolloutStateMachine()
 
@@ -382,17 +385,29 @@ class RolloutService:
             approved_by=request.approved_by,
             created_at=created_at,
         )
-        persisted_decision, persisted_transition = self._decision_repository.persist_outcome(
-            decision_record,
-            transition,
+        treatment_percentage = self._STATE_PERCENTAGES.get(
+            target_state, experiment.treatment_percentage
         )
-        updated = self._store.apply_rollout_state(
-            experiment.experiment_id,
-            target_state,
-            treatment_percentage=self._STATE_PERCENTAGES.get(
-                target_state, experiment.treatment_percentage
-            ),
-        )
+        if self._atomic_repository is not None:
+            persisted_decision, persisted_transition, updated = (
+                self._atomic_repository.persist_outcome_and_apply(
+                    decision_record,
+                    transition,
+                    treatment_percentage=treatment_percentage,
+                )
+            )
+        else:
+            persisted_decision, persisted_transition = self._decision_repository.persist_outcome(
+                decision_record,
+                transition,
+            )
+            updated = self._store.apply_rollout_state(
+                experiment.experiment_id,
+                target_state,
+                treatment_percentage=treatment_percentage,
+                expected_state=experiment.state,
+                expected_allocation_version=experiment.allocation_version,
+            )
         return RolloutTransitionOutcome(
             experiment=updated,
             analysis=analysis,

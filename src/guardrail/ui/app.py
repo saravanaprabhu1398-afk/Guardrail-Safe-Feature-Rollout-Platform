@@ -11,8 +11,22 @@ from guardrail.ui.presenters import decision_rows, health_rows, metric_chart_row
 DEFAULT_API_URL = os.getenv("GUARDRAIL_API_URL", "http://localhost:8000")
 
 
+def _forwarded_access_token() -> str | None:
+    headers = st.context.headers
+    forwarded = headers.get("X-Forwarded-Access-Token")
+    authorization = headers.get("Authorization", "")
+    if forwarded:
+        return forwarded
+    if authorization.lower().startswith("bearer "):
+        return authorization[7:].strip() or None
+    return None
+
+
 def _client() -> GuardrailApiClient:
-    return GuardrailApiClient(st.session_state.get("api_url", DEFAULT_API_URL))
+    return GuardrailApiClient(
+        st.session_state.get("api_url", DEFAULT_API_URL),
+        access_token=_forwarded_access_token() or st.session_state.get("access_token") or None,
+    )
 
 
 def _remember_experiment(experiment: dict[str, Any]) -> None:
@@ -190,6 +204,15 @@ def main() -> None:
     with st.sidebar:
         st.header("Connection")
         st.session_state["api_url"] = st.text_input("Guardrail API", value=DEFAULT_API_URL)
+        if _forwarded_access_token():
+            st.success("OIDC access token received from the trusted ingress.")
+        else:
+            st.session_state["access_token"] = st.text_input(
+                "OIDC access token",
+                value=st.session_state.get("access_token", ""),
+                type="password",
+                help="Required when AUTH_ENABLED=true; retained only in this UI session.",
+            )
         experiment_id = st.text_input(
             "Active experiment",
             value=st.session_state.get("experiment_id", "new_ranking_algorithm"),

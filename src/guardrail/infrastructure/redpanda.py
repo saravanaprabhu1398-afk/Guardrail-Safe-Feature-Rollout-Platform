@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from threading import Lock
@@ -21,10 +22,30 @@ from guardrail.domain.transport import (
 )
 from guardrail.infrastructure.snowflake import connect
 from guardrail.infrastructure.streaming import SnowpipeEventPublisher
+from guardrail.infrastructure.telemetry import configure_json_logging
+
+LOGGER = logging.getLogger("guardrail.redpanda_worker")
 
 ProducerFactory = Callable[[dict[str, Any]], Any]
 ConsumerFactory = Callable[[dict[str, Any]], Any]
 TopicPartitionFactory = Callable[[str, int, int], Any]
+
+
+def _security_config(settings: TransportSettings) -> dict[str, Any]:
+    configuration: dict[str, Any] = {
+        "security.protocol": settings.redpanda_security_protocol,
+    }
+    if settings.redpanda_security_protocol.startswith("SASL_"):
+        configuration.update(
+            {
+                "sasl.mechanism": settings.redpanda_sasl_mechanism,
+                "sasl.username": settings.redpanda_sasl_username,
+                "sasl.password": settings.redpanda_sasl_password_value,
+            }
+        )
+    if settings.redpanda_ssl_ca_location is not None:
+        configuration["ssl.ca.location"] = str(settings.redpanda_ssl_ca_location)
+    return configuration
 
 
 def _payload(event: EventPayload) -> dict[str, Any]:
@@ -66,6 +87,7 @@ class RedpandaEventDispatcher:
                 "compression.type": "zstd",
                 "linger.ms": 5,
                 "message.timeout.ms": 10_000,
+                **_security_config(self._settings),
             }
         )
         return self._producer
@@ -191,6 +213,7 @@ class RedpandaToSnowpipeWorker:
                 "enable.auto.offset.store": False,
                 "auto.offset.reset": "earliest",
                 "isolation.level": "read_committed",
+                **_security_config(self._settings),
             }
         )
         self._consumer.subscribe([self._settings.redpanda_topic])
@@ -296,20 +319,25 @@ class RedpandaToSnowpipeWorker:
 
 
 def run_worker() -> None:
+    configure_json_logging()
     transport = TransportSettings()  # type: ignore[call-arg]
     snowflake = SnowflakeSettings().model_copy(  # type: ignore[call-arg]
         update={"snowflake_streaming_channel": "guardrail-redpanda-worker-v1"}
     )
     publisher = SnowpipeEventPublisher(snowflake)
     worker = RedpandaToSnowpipeWorker(transport, publisher)
-    print(f"Consuming {transport.redpanda_topic} from {transport.redpanda_bootstrap_servers}")
+    LOGGER.info(
+        "redpanda_worker_started topic=%s bootstrap_servers=%s",
+        transport.redpanda_topic,
+        transport.redpanda_bootstrap_servers,
+    )
     try:
         while True:
             result = worker.process_once()
             if result is not None:
-                print(result.model_dump_json())
+                LOGGER.info("redpanda_batch_complete result=%s", result.model_dump_json())
     except KeyboardInterrupt:
-        pass
+        LOGGER.info("redpanda_worker_stopped")
     finally:
         worker.close()
         publisher.close()

@@ -8,6 +8,8 @@ Use these runbooks in order:
    and harmful-feature stories.
 3. [Rollout operations](rollout-operations.md) — validate evidence, apply a decision,
    inspect where data lands, and respond to safety actions.
+4. [Production deployment and acceptance](production-deployment.md) — install the
+   PostgreSQL/OIDC/Kubernetes runtime and execute the customer-traffic sign-off gates.
 
 The [five-minute demo script](../demo/five-minute-demo-script.md) turns the same
 commands into a concise portfolio walkthrough.

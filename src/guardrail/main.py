@@ -3,9 +3,11 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from guardrail.config import SnowflakeSettings, TransportSettings
+from guardrail.config import RuntimeSettings, SnowflakeSettings, TransportSettings
 from guardrail.domain.analysis import (
     AnalysisEvidenceError,
     AnalysisEvidenceRepository,
@@ -13,6 +15,7 @@ from guardrail.domain.analysis import (
     AnalysisSnapshotRepository,
     ExperimentAnalysisReport,
 )
+from guardrail.domain.auth import ApplicationRole, Principal, TokenAuthenticator
 from guardrail.domain.events import SimulationRequest, SimulationResult
 from guardrail.domain.experiments import Assignment, Experiment, ExperimentCreate
 from guardrail.domain.ingestion import (
@@ -52,8 +55,13 @@ from guardrail.domain.transport import (
     EventDispatchReceipt,
 )
 from guardrail.infrastructure.analysis import SnowflakeAnalysisRepository
+from guardrail.infrastructure.http_security import RequestSecurityMiddleware
 from guardrail.infrastructure.integrity import SnowflakeIntegrityRepository
 from guardrail.infrastructure.metrics import SnowflakeMetricArtifactRepository
+from guardrail.infrastructure.postgres import (
+    PostgresExperimentStore,
+    PostgresRolloutRepository,
+)
 from guardrail.infrastructure.redpanda import RedpandaEventDispatcher
 from guardrail.infrastructure.replay import SnowflakeReplayRepository
 from guardrail.infrastructure.rollout import (
@@ -62,15 +70,23 @@ from guardrail.infrastructure.rollout import (
 )
 from guardrail.infrastructure.snapshots import SnowflakeAnalysisSnapshotRepository
 from guardrail.infrastructure.streaming import SnowpipeEventPublisher
+from guardrail.infrastructure.telemetry import (
+    HttpMetricsMiddleware,
+    configure_json_logging,
+    prometheus_response,
+)
 from guardrail.services.analysis import ExperimentAnalysisService
 from guardrail.services.assignment import AssignmentService
 from guardrail.services.integrity import IntegrityService
 from guardrail.services.replay import ReplayService
 from guardrail.services.rollout import RolloutPolicy, RolloutPolicyEvaluator, RolloutService
+from guardrail.services.security import AuthorizationService
 from guardrail.services.simulator import DEFAULT_SIMULATION_START, MarketplaceSimulator
 from guardrail.services.store import (
+    ConcurrentExperimentUpdateError,
     ExperimentAlreadyExistsError,
     ExperimentNotFoundError,
+    ExperimentStore,
     InMemoryExperimentStore,
     InvalidExperimentStateError,
 )
@@ -78,7 +94,7 @@ from guardrail.services.transport import DirectSnowpipeDispatcher
 
 
 def create_app(
-    store: InMemoryExperimentStore | None = None,
+    store: ExperimentStore | None = None,
     event_publisher: EventPublisher | None = None,
     replay_workflow: ReplayWorkflow | None = None,
     event_dispatcher: EventDispatcher | None = None,
@@ -86,9 +102,23 @@ def create_app(
     analysis_repository: AnalysisEvidenceRepository | None = None,
     analysis_snapshot_repository: AnalysisSnapshotRepository | None = None,
     rollout_workflow: RolloutWorkflow | None = None,
+    runtime_settings: RuntimeSettings | None = None,
+    token_authenticator: TokenAuthenticator | None = None,
 ) -> FastAPI:
-    experiment_store = store or InMemoryExperimentStore()
+    runtime = runtime_settings or RuntimeSettings()
+    use_default_rollout_workflow = rollout_workflow is None
+    experiment_store = store or (
+        PostgresExperimentStore(runtime)
+        if runtime.guardrail_store_backend == "postgres"
+        else InMemoryExperimentStore()
+    )
+    operational_rollout_repository = (
+        PostgresRolloutRepository(experiment_store.engine)
+        if isinstance(experiment_store, PostgresExperimentStore)
+        else None
+    )
     assignment_service = AssignmentService(experiment_store)
+    authorization = AuthorizationService(runtime, token_authenticator)
     simulator = MarketplaceSimulator()
     publisher = event_publisher
     replay_service = replay_workflow
@@ -167,11 +197,17 @@ def create_app(
         if rollout_service is None:
             settings = get_snowflake_settings()
             active_metrics = SnowflakeMetricArtifactRepository(settings).list_active()
+            decision_repository = (
+                operational_rollout_repository
+                if operational_rollout_repository is not None
+                else SnowflakeDecisionRepository(settings)
+            )
             rollout_service = RolloutService(
                 experiment_store,
                 get_analysis_service(),
                 SnowflakeDecisionEvidenceRepository(settings),
-                SnowflakeDecisionRepository(settings),
+                decision_repository,
+                atomic_repository=operational_rollout_repository,
                 evaluator=RolloutPolicyEvaluator(
                     RolloutPolicy.from_metric_definitions(
                         artifact.definition for artifact in active_metrics
@@ -187,23 +223,76 @@ def create_app(
             dispatcher.close()  # type: ignore[attr-defined]
         if publisher is not None and hasattr(publisher, "close"):
             publisher.close()  # type: ignore[attr-defined]
+        if hasattr(experiment_store, "close"):
+            experiment_store.close()  # type: ignore[attr-defined]
 
     application = FastAPI(
         title="Guardrail API",
-        version="0.1.0",
+        version="0.2.0",
         description="Experiment assignment and marketplace telemetry simulation.",
         lifespan=lifespan,
+        docs_url=None if runtime.guardrail_env == "production" else "/docs",
+        redoc_url=None if runtime.guardrail_env == "production" else "/redoc",
     )
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(runtime.cors_origin_values),
+        allow_credentials=True,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    )
+    application.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=list(runtime.trusted_host_values),
+    )
+    application.add_middleware(
+        RequestSecurityMiddleware,
+        max_request_bytes=runtime.max_request_bytes,
+        production=runtime.guardrail_env == "production",
+    )
+    application.add_middleware(HttpMetricsMiddleware)
+
+    viewer = authorization.require(ApplicationRole.VIEWER)
+    operator = authorization.require(ApplicationRole.EXPERIMENT_OPERATOR)
+    approver = authorization.require(ApplicationRole.ROLLOUT_APPROVER)
+    assignment_client = authorization.require(ApplicationRole.ASSIGNMENT_CLIENT)
+    telemetry_producer = authorization.require(ApplicationRole.TELEMETRY_PRODUCER)
 
     @application.get("/health", tags=["system"])
     def health() -> dict[str, str]:
         return {"status": "ok", "service": "guardrail-api"}
+
+    @application.get("/health/live", tags=["system"])
+    def liveness() -> dict[str, str]:
+        return {"status": "ok", "service": "guardrail-api"}
+
+    @application.get("/health/ready", tags=["system"])
+    def readiness() -> dict[str, str]:
+        try:
+            experiment_store.ping()
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Operational state store is unavailable.",
+            ) from exc
+        return {"status": "ready", "store": runtime.guardrail_store_backend}
+
+    @application.get("/metrics", include_in_schema=False)
+    def metrics() -> object:
+        return prometheus_response()
+
+    @application.get("/me", response_model=Principal, tags=["system"])
+    def current_principal(
+        principal: Principal = Depends(authorization.any_authenticated),  # noqa: B008
+    ) -> Principal:
+        return principal
 
     @application.post(
         "/experiments",
         response_model=Experiment,
         status_code=status.HTTP_201_CREATED,
         tags=["experiments"],
+        dependencies=[Depends(operator)],
     )
     def create_experiment(request: ExperimentCreate) -> Experiment:
         try:
@@ -218,6 +307,7 @@ def create_app(
         "/experiments/{experiment_id}",
         response_model=Experiment,
         tags=["experiments"],
+        dependencies=[Depends(viewer)],
     )
     def get_experiment(experiment_id: str) -> Experiment:
         try:
@@ -232,6 +322,7 @@ def create_app(
         "/experiments/{experiment_id}/health",
         response_model=ExperimentHealthReport,
         tags=["experiments"],
+        dependencies=[Depends(viewer)],
     )
     def get_experiment_health(experiment_id: str) -> ExperimentHealthReport:
         try:
@@ -256,6 +347,7 @@ def create_app(
         "/experiments/{experiment_id}/results",
         response_model=ExperimentAnalysisReport,
         tags=["experiments"],
+        dependencies=[Depends(viewer)],
     )
     def get_experiment_results(experiment_id: str) -> ExperimentAnalysisReport:
         try:
@@ -285,9 +377,13 @@ def create_app(
         "/experiments/{experiment_id}/decisions",
         response_model=list[RolloutDecisionRecord],
         tags=["experiments"],
+        dependencies=[Depends(viewer)],
     )
     def get_experiment_decisions(experiment_id: str) -> tuple[RolloutDecisionRecord, ...]:
         try:
+            if operational_rollout_repository is not None and use_default_rollout_workflow:
+                experiment_store.get_experiment(experiment_id)
+                return operational_rollout_repository.list_decisions(experiment_id)
             return get_rollout_workflow().list_decisions(experiment_id)
         except ExperimentNotFoundError as exc:
             raise HTTPException(
@@ -312,7 +408,13 @@ def create_app(
     def apply_experiment_transition(
         experiment_id: str,
         request: TransitionRequest,
+        principal: Principal = Depends(approver),  # noqa: B008
     ) -> RolloutTransitionOutcome:
+        if runtime.auth_enabled and request.approved_by != principal.subject:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="approved_by must match the authenticated rollout approver.",
+            )
         try:
             return get_rollout_workflow().evaluate_and_transition(experiment_id, request)
         except ExperimentNotFoundError as exc:
@@ -324,6 +426,11 @@ def create_app(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=str(exc),
+            ) from exc
+        except ConcurrentExperimentUpdateError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Experiment changed during rollout evaluation; retry with fresh evidence.",
             ) from exc
         except (
             IntegrityEvidenceError,
@@ -343,6 +450,7 @@ def create_app(
         "/experiments/{experiment_id}/launch",
         response_model=Experiment,
         tags=["experiments"],
+        dependencies=[Depends(operator)],
     )
     def launch_experiment(experiment_id: str) -> Experiment:
         try:
@@ -362,6 +470,7 @@ def create_app(
         "/assignments/{experiment_id}/{subject_id}",
         response_model=Assignment,
         tags=["assignments"],
+        dependencies=[Depends(assignment_client)],
     )
     def get_assignment(experiment_id: str, subject_id: str) -> Assignment:
         try:
@@ -382,6 +491,7 @@ def create_app(
         response_model=EventDispatchReceipt,
         status_code=status.HTTP_202_ACCEPTED,
         tags=["ingestion"],
+        dependencies=[Depends(telemetry_producer)],
     )
     def ingest_events(request: EventBatch) -> EventDispatchReceipt:
         try:
@@ -396,6 +506,7 @@ def create_app(
         "/rejections/{rejection_id}",
         response_model=RejectedEvent,
         tags=["replay"],
+        dependencies=[Depends(viewer)],
     )
     def get_rejected_event(rejection_id: str) -> RejectedEvent:
         try:
@@ -410,6 +521,7 @@ def create_app(
         "/rejections/{rejection_id}/replay",
         response_model=ReplayReceipt,
         tags=["replay"],
+        dependencies=[Depends(operator)],
     )
     def replay_rejected_event(rejection_id: str, request: ReplayRequest) -> ReplayReceipt:
         try:
@@ -436,6 +548,7 @@ def create_app(
         "/simulations",
         response_model=SimulationResult,
         tags=["simulation"],
+        dependencies=[Depends(operator)],
     )
     def run_simulation(request: SimulationRequest) -> SimulationResult:
         assignments: list[Assignment] = []
@@ -493,4 +606,14 @@ app = create_app()
 def run() -> None:
     import uvicorn
 
-    uvicorn.run("guardrail.main:app", host="0.0.0.0", port=8000, reload=True)
+    runtime = RuntimeSettings()
+    configure_json_logging()
+    uvicorn.run(
+        "guardrail.main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=runtime.guardrail_env == "local",
+        proxy_headers=True,
+        forwarded_allow_ips="*" if runtime.guardrail_env == "local" else "127.0.0.1",
+        log_config=None,
+    )

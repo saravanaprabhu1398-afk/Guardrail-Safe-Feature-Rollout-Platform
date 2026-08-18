@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from threading import RLock
+from typing import Protocol
 
 from guardrail.domain.experiments import (
     Assignment,
@@ -21,6 +22,36 @@ class ExperimentAlreadyExistsError(ValueError):
 
 class InvalidExperimentStateError(ValueError):
     pass
+
+
+class ConcurrentExperimentUpdateError(RuntimeError):
+    pass
+
+
+class ExperimentStore(Protocol):
+    def create_experiment(self, request: ExperimentCreate) -> Experiment: ...
+
+    def get_experiment(self, experiment_id: str) -> Experiment: ...
+
+    def launch_experiment(self, experiment_id: str) -> Experiment: ...
+
+    def apply_rollout_state(
+        self,
+        experiment_id: str,
+        state: RolloutState,
+        *,
+        treatment_percentage: int,
+        expected_state: RolloutState | None = None,
+        expected_allocation_version: int | None = None,
+    ) -> Experiment: ...
+
+    def get_assignment(
+        self, experiment_id: str, subject_id: str, allocation_version: int
+    ) -> Assignment | None: ...
+
+    def save_assignment(self, assignment: Assignment) -> Assignment: ...
+
+    def ping(self) -> None: ...
 
 
 class InMemoryExperimentStore:
@@ -84,11 +115,24 @@ class InMemoryExperimentStore:
         state: RolloutState,
         *,
         treatment_percentage: int,
+        expected_state: RolloutState | None = None,
+        expected_allocation_version: int | None = None,
     ) -> Experiment:
         if not 0 <= treatment_percentage <= 100:
             raise ValueError("Treatment percentage must be between zero and 100.")
         with self._lock:
             experiment = self.get_experiment(experiment_id)
+            if expected_state is not None and experiment.state != expected_state:
+                raise ConcurrentExperimentUpdateError(
+                    f"Experiment state changed from expected {expected_state}."
+                )
+            if (
+                expected_allocation_version is not None
+                and experiment.allocation_version != expected_allocation_version
+            ):
+                raise ConcurrentExperimentUpdateError(
+                    "Experiment allocation version changed during rollout evaluation."
+                )
             allocation_changed = treatment_percentage != experiment.treatment_percentage
             updated = experiment.model_copy(
                 update={
@@ -119,3 +163,6 @@ class InMemoryExperimentStore:
         )
         with self._lock:
             return self._assignments.setdefault(key, assignment)
+
+    def ping(self) -> None:
+        return None

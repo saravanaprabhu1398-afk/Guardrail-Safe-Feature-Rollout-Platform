@@ -1,9 +1,9 @@
 # Guardrail Project Progress Tracker
 
 **Last updated:** 2026-08-18
-**Overall completion:** 49 of 50 planned delivery items (98%)
-**Current focus:** Record and publish the five-minute Phase 6 demo
-**Delivery status:** On track; final recording requires an interactive browser/recording surface
+**Product-plan completion:** 49 of 50 delivery items (98%); demo recording remains
+**Production-runtime status:** Implementation complete; environment acceptance pending
+**Current focus:** Execute production-like restore, load, identity, network, and rollback gates
 
 This tracker records delivered outcomes, verification evidence, remaining scope,
 and risks. The detailed product and architecture specification remains in the
@@ -20,9 +20,37 @@ and risks. The detailed product and architecture specification remains in the
 | 4 — Integrity and statistics | **Complete** | 7/7 | 100% | Corrupt and underpowered decisions are blocked and every analysis is reproducibly snapshotted. | Preserve Phase 4 acceptance as a regression gate. |
 | 5 — Metrics and rollout automation | **Complete** | 7/7 | 100% | Versioned metrics compile and policy decisions persist with complete lineage. | Preserve Phase 5 acceptance as a regression gate. |
 | 6 — UI and portfolio packaging | **In progress** | 6/7 | 86% | UI, demos, CI gates, cost analysis, and runbooks pass; recording remains. | Record and publish the five-minute demo. |
-| **Total** | **In progress** | **49/50** | **98%** | The clone-to-demo product path is implemented and tested. | Complete the final recording item. |
+| 7 — Production hardening | **Acceptance pending** | 9/9 code | 100% code | Durable state, OIDC/RBAC, atomic outbox, telemetry, hardened image, Helm, and Terraform are implemented. | Pass the external production sign-off gates. |
+| **Product plan** | **In progress** | **49/50** | **98%** | The clone-to-demo product path is implemented and tested. | Complete recording independently of production acceptance. |
 
 ## Latest shipped milestone
+
+### Production runtime baseline
+
+Implemented on 2026-08-18:
+
+- [x] Replaced process-local production state with Alembic-managed PostgreSQL experiments,
+  assignments, rollout decisions, state transitions, and a transactional outbox.
+- [x] Made decision audit, approval, experiment state, allocation version, and outbox writes one
+  row-locked transaction with stale-evidence rejection and idempotent decision identity.
+- [x] Added lease-based Snowflake replication with retry, exponential backoff, safe errors, and
+  terminal dead-letter evidence.
+- [x] Added OIDC signature/issuer/audience validation, endpoint RBAC, approval-subject binding,
+  production fail-closed configuration, request limits, trusted hosts, explicit CORS, and security
+  headers.
+- [x] Added Redpanda TLS/SASL support with secret-valued credentials and production plaintext
+  rejection.
+- [x] Added liveness/readiness, Prometheus HTTP metrics, request IDs, and JSON runtime logging.
+- [x] Hardened the container to an unprivileged user and created a Helm release with probes,
+  migration hook, external secrets, resources, HPA, PDB, workers, ingress, and network policy.
+- [x] Added a Terraform root with locked current Helm/Kubernetes providers and immutable-image
+  validation.
+- [x] Added real-PostgreSQL CI integration, Helm/Terraform gates, production dependency audit, and
+  a customer-traffic acceptance/rollback runbook.
+
+This is a production-capable code baseline, not customer-traffic sign-off. The managed services,
+OIDC tenant, backup restore, load/soak, alert routing, network policy, secret rotation, canary, and
+rollback rehearsal must pass in the target environment.
 
 ### Phase 6 control UI and reproducible portfolio package
 
@@ -50,7 +78,7 @@ Phase 6 local and live acceptance:
 | --- | --- | --- |
 | Streamlit native render | Title, 4 workspaces, 7 actions, no app exception | Pass |
 | Offline scenarios | `RAMP`, `PAUSE`, `PAUSE`; stable decision/transition IDs | 3/3 pass |
-| Full Python suite | 132 passed | Pass |
+| Full Python suite | 146 passed, 1 real-PostgreSQL test skipped locally | Pass |
 | Compose definition | API, UI, Redpanda, worker profile all valid | Pass |
 | Live query-history sample | 492 queries across 14 warehouse/type slices | Pass |
 | Live execution sample | 95.125 seconds; SELECT p95 921 ms | Recorded |
@@ -422,7 +450,12 @@ Replay batch: `7dd00d5e-abc3-4019-88ec-208851ea7884`
 
 | Verification | Current result | Command or evidence |
 | --- | --- | --- |
-| Complete Python test suite | 132 passed | `uv run pytest` |
+| Complete Python test suite | 146 passed, 1 real-PostgreSQL test skipped locally | `uv run pytest` |
+| PostgreSQL schema compilation | Alembic rendered all five operational tables plus its version table | `uv run alembic upgrade head --sql` |
+| Production security and atomicity | OIDC/RBAC, headers, body limit, durable assignments, atomic decisions, retry/dead-letter tests passed | `uv run pytest tests/test_security.py tests/test_postgres_store.py` |
+| Production dependency audit | No known vulnerabilities found | `uv export --frozen --no-dev ... | uv run pip-audit --requirement /dev/stdin` |
+| Production Helm chart | Helm 4 lint passed | `helm lint deploy/helm/guardrail` |
+| Terraform deployment root | Provider lock covers Linux/macOS architectures; configuration valid | `terraform -chdir=infrastructure/terraform validate` |
 | Phase 6 Streamlit UI regression | Client, presenters, and native four-workspace render passed | `uv run pytest tests/test_ui.py` |
 | Phase 6 deterministic demo gate | Healthy ramps; corrupt and harmful scenarios pause; IDs repeat | `uv run guardrail-phase6-demo --scenario all` |
 | Live Phase 6 cost/performance report | 492 queries in 14 slices with latency, bytes, failures, and caveated credits | `uv run guardrail-phase6-cost-report --lookback-hours 24 --history-limit 500` |
@@ -456,6 +489,20 @@ Replay batch: `7dd00d5e-abc3-4019-88ec-208851ea7884`
 | CI workflow definition | Added; contracts, offline dbt parse, quality, Compose, and container build | `.github/workflows/ci.yml` |
 
 ## Active work board
+
+### Completed — production runtime implementation
+
+- [x] Durable PostgreSQL state and migrations.
+- [x] OIDC/RBAC and secure broker transport.
+- [x] Atomic rollout/outbox boundary and retry worker.
+- [x] Metrics, probes, JSON logs, hardened container, Helm, Terraform, and CI gates.
+
+### Next — production environment acceptance
+
+- [ ] Pass restore and RPO/RTO rehearsal.
+- [ ] Pass peak-load and soak tests against two or more API replicas.
+- [ ] Validate real OIDC mappings, network/TLS policy, secret rotation, and alert routing.
+- [ ] Complete canary deployment and rollback rehearsal.
 
 ### Completed — Phase 6 implementation and packaging
 
