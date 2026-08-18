@@ -1,0 +1,20 @@
+name: average_delivery_minutes
+version: 1
+description: Mean delivery duration for attributed completed deliveries.
+owner: marketplace-operations
+entity: user_id
+type: continuous
+role: guardrail
+value:
+  event: delivery_completed
+  field: attributes.delivery_minutes
+denominator:
+  event: experiment_exposed
+attribution_window:
+  value: 24
+  unit: hours
+direction: decrease
+minimum_detectable_effect: 5.0
+decision_rule:
+  kind: maximum_absolute_increase
+  value: 3.0

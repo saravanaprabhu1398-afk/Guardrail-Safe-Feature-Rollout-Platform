@@ -1,0 +1,19 @@
+name: order_conversion_rate
+version: 1
+description: Share of exposed users who complete an order inside the attribution window.
+owner: marketplace-growth
+entity: user_id
+type: proportion
+role: primary
+numerator:
+  event: order_completed
+denominator:
+  event: experiment_exposed
+attribution_window:
+  value: 24
+  unit: hours
+direction: increase
+minimum_detectable_effect: 0.05
+decision_rule:
+  kind: minimum_absolute_improvement
+  value: 0.02

@@ -1,0 +1,19 @@
+name: payment_failure_rate
+version: 1
+description: Share of exposed users with an attributed payment failure.
+owner: marketplace-payments
+entity: user_id
+type: proportion
+role: guardrail
+numerator:
+  event: payment_failed
+denominator:
+  event: experiment_exposed
+attribution_window:
+  value: 24
+  unit: hours
+direction: decrease
+minimum_detectable_effect: 0.01
+decision_rule:
+  kind: maximum_value
+  value: 0.01

@@ -7,8 +7,11 @@ from guardrail.domain.analysis import (
     AnalysisSnapshotError,
     AnalysisSnapshotRecord,
     ExperimentAnalysisEvidence,
+    ExperimentAnalysisReport,
     ExperimentAnalysisSnapshotPayload,
+    ExperimentAnalysisStatus,
 )
+from guardrail.domain.experiments import Experiment, RolloutState
 from guardrail.domain.ingestion import EventPublishingError, IngestionReceipt
 from guardrail.domain.integrity import ExperimentIntegrityEvidence, IntegrityEvidenceError
 from guardrail.domain.replay import (
@@ -16,6 +19,14 @@ from guardrail.domain.replay import (
     ReplayReceipt,
     ReplayRequest,
     ReplayStatus,
+)
+from guardrail.domain.rollout import (
+    RolloutDecision,
+    RolloutDecisionRecord,
+    RolloutGuardrailEvidence,
+    RolloutTransitionOutcome,
+    StateTransitionRecord,
+    TransitionRequest,
 )
 from guardrail.main import create_app
 
@@ -131,6 +142,83 @@ class StaticSnapshotRepository:
 class FailingSnapshotRepository:
     def persist(self, payload: ExperimentAnalysisSnapshotPayload) -> AnalysisSnapshotRecord:
         raise AnalysisSnapshotError("provider details")
+
+
+class RecordingRolloutWorkflow:
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, TransitionRequest]] = []
+        timestamp = datetime(2026, 8, 18, tzinfo=UTC)
+        self.decision = RolloutDecisionRecord(
+            decision_id="decision_test",
+            experiment_id="new_ranking_algorithm",
+            allocation_version=1,
+            previous_state=RolloutState.RUNNING_5,
+            recommended_state=RolloutState.PAUSED,
+            decision=RolloutDecision.PAUSE,
+            decision_reason="Integrity checks block analysis.",
+            analysis_status=ExperimentAnalysisStatus.BLOCKED,
+            analysis_snapshot_id="analysis_test",
+            health_snapshot_id="health_test",
+            policy_version="phase5-rollout-v1",
+            policy={"statistical_significance_alpha": 0.05},
+            guardrail_evidence=RolloutGuardrailEvidence(
+                experiment_id="new_ranking_algorithm",
+                allocation_version=1,
+            ),
+            guardrail_checks=(),
+            created_at=timestamp,
+        )
+        self.transition = StateTransitionRecord(
+            transition_id="transition_test",
+            decision_id="decision_test",
+            experiment_id="new_ranking_algorithm",
+            allocation_version=1,
+            previous_state=RolloutState.RUNNING_5,
+            new_state=RolloutState.PAUSED,
+            decision=RolloutDecision.PAUSE,
+            decision_reason="Integrity checks block analysis.",
+            analysis_snapshot_id="analysis_test",
+            health_snapshot_id="health_test",
+            policy_version="phase5-rollout-v1",
+            requested_by="guardrail",
+            approved_by="product-owner",
+            created_at=timestamp,
+        )
+        self.outcome = RolloutTransitionOutcome(
+            experiment=Experiment(
+                experiment_id="new_ranking_algorithm",
+                name="Personalized restaurant ranking",
+                hypothesis="Personalized ranking increases completed orders per exposed user.",
+                primary_metric="order_conversion_rate",
+                treatment_percentage=5,
+                allocation_version=1,
+                state=RolloutState.PAUSED,
+                created_at=timestamp,
+                updated_at=timestamp,
+            ),
+            analysis=ExperimentAnalysisReport(
+                experiment_id="new_ranking_algorithm",
+                allocation_version=1,
+                status=ExperimentAnalysisStatus.BLOCKED,
+                analysis_blocked=True,
+                blocking_checks=(),
+                metrics=(),
+                health_snapshot_id="health_test",
+                analysis_snapshot_id="analysis_test",
+                snapshot_created_at=timestamp,
+            ),
+            decision=self.decision,
+            transition=self.transition,
+        )
+
+    def evaluate_and_transition(
+        self, experiment_id: str, request: TransitionRequest
+    ) -> RolloutTransitionOutcome:
+        self.requests.append((experiment_id, request))
+        return self.outcome
+
+    def list_decisions(self, experiment_id: str) -> tuple[RolloutDecisionRecord, ...]:
+        return (self.decision,)
 
 
 class RecordingReplayWorkflow:
@@ -271,6 +359,23 @@ def test_experiment_results_endpoint_masks_snapshot_provider_failure() -> None:
 
     assert response.status_code == 503
     assert response.json() == {"detail": "Experiment analysis snapshot could not be persisted."}
+
+
+def test_rollout_transition_and_decision_history_endpoints() -> None:
+    workflow = RecordingRolloutWorkflow()
+    with TestClient(create_app(rollout_workflow=workflow)) as client:
+        transition = client.post(
+            "/experiments/new_ranking_algorithm/transitions",
+            json={"requested_by": "guardrail", "approved_by": "product-owner"},
+        )
+        history = client.get("/experiments/new_ranking_algorithm/decisions")
+
+    assert transition.status_code == 200
+    assert transition.json()["decision"]["decision"] == "PAUSE"
+    assert transition.json()["experiment"]["state"] == "PAUSED"
+    assert history.status_code == 200
+    assert history.json()[0]["decision_id"] == "decision_test"
+    assert workflow.requests[0][0] == "new_ranking_algorithm"
 
 
 def test_simulation_reports_injected_faults() -> None:

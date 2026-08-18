@@ -634,8 +634,10 @@ source = { editable = "." }
 dependencies = [
     { name = "confluent-kafka" },
     { name = "fastapi" },
+    { name = "jsonschema", extra = ["format"] },
     { name = "pydantic" },
     { name = "pydantic-settings" },
+    { name = "pyyaml" },
     { name = "scipy" },
     { name = "snowflake-connector-python" },
     { name = "snowpipe-streaming" },
@@ -646,7 +648,6 @@ dependencies = [
 dev = [
     { name = "dbt-snowflake" },
     { name = "httpx2" },
-    { name = "jsonschema", extra = ["format"] },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
@@ -656,8 +657,10 @@ dev = [
 requires-dist = [
     { name = "confluent-kafka", specifier = ">=2.12,<3" },
     { name = "fastapi", specifier = ">=0.116,<1" },
+    { name = "jsonschema", extras = ["format"], specifier = ">=4.25,<5" },
     { name = "pydantic", specifier = ">=2.11,<3" },
     { name = "pydantic-settings", specifier = ">=2.10,<3" },
+    { name = "pyyaml", specifier = ">=6,<7" },
     { name = "scipy", specifier = ">=1.17,<2" },
     { name = "snowflake-connector-python", specifier = ">=4.7,<5" },
     { name = "snowpipe-streaming", specifier = ">=1.6,<2" },
@@ -668,7 +671,6 @@ requires-dist = [
 dev = [
     { name = "dbt-snowflake", specifier = ">=1.12,<1.13" },
     { name = "httpx2", specifier = ">=2,<3" },
-    { name = "jsonschema", extras = ["format"], specifier = ">=4.25,<5" },
     { name = "pytest", specifier = ">=8.4,<9" },
     { name = "pytest-cov", specifier = ">=6,<8" },
     { name = "ruff", specifier = ">=0.12,<1" },

@@ -1,0 +1,19 @@
+name: cancellation_rate
+version: 1
+description: Share of exposed users who cancel an attributed order.
+owner: marketplace-operations
+entity: user_id
+type: proportion
+role: guardrail
+numerator:
+  event: order_cancelled
+denominator:
+  event: experiment_exposed
+attribution_window:
+  value: 24
+  unit: hours
+direction: decrease
+minimum_detectable_effect: 0.02
+decision_rule:
+  kind: maximum_relative_increase
+  value: 0.02

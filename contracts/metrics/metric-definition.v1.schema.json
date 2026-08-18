@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://guardrail.local/contracts/metrics/metric-definition.v1.schema.json",
+  "title": "Guardrail metric definition v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "version",
+    "description",
+    "owner",
+    "entity",
+    "type",
+    "role",
+    "denominator",
+    "attribution_window",
+    "direction",
+    "minimum_detectable_effect",
+    "decision_rule"
+  ],
+  "properties": {
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$", "maxLength": 120},
+    "version": {"type": "integer", "minimum": 1},
+    "description": {"type": "string", "minLength": 10, "maxLength": 500},
+    "owner": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$", "maxLength": 120},
+    "entity": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "type": {"enum": ["proportion", "continuous"]},
+    "role": {"enum": ["primary", "guardrail"]},
+    "numerator": {"$ref": "#/$defs/eventReference"},
+    "denominator": {"$ref": "#/$defs/eventReference"},
+    "value": {"$ref": "#/$defs/valueReference"},
+    "attribution_window": {"$ref": "#/$defs/attributionWindow"},
+    "direction": {"enum": ["increase", "decrease"]},
+    "minimum_detectable_effect": {"type": "number", "exclusiveMinimum": 0},
+    "decision_rule": {"$ref": "#/$defs/decisionRule"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"type": {"const": "proportion"}}, "required": ["type"]},
+      "then": {"required": ["numerator"], "not": {"required": ["value"]}}
+    },
+    {
+      "if": {"properties": {"type": {"const": "continuous"}}, "required": ["type"]},
+      "then": {"required": ["value"], "not": {"required": ["numerator"]}}
+    },
+    {
+      "if": {"properties": {"role": {"const": "primary"}}, "required": ["role"]},
+      "then": {
+        "properties": {
+          "decision_rule": {
+            "properties": {"kind": {"const": "minimum_absolute_improvement"}}
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "eventReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event"],
+      "properties": {
+        "event": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}
+      }
+    },
+    "valueReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event", "field"],
+      "properties": {
+        "event": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "field": {"type": "string", "pattern": "^attributes\\.[a-z][a-z0-9_]*$"}
+      }
+    },
+    "attributionWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "unit"],
+      "properties": {
+        "value": {"type": "integer", "minimum": 1, "maximum": 168},
+        "unit": {"const": "hours"}
+      }
+    },
+    "decisionRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "value"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "minimum_absolute_improvement",
+            "maximum_relative_increase",
+            "maximum_absolute_increase",
+            "maximum_value"
+          ]
+        },
+        "value": {"type": "number", "minimum": 0}
+      }
+    }
+  }
+}

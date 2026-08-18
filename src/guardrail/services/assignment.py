@@ -11,6 +11,7 @@ class AssignmentService:
         RolloutState.RUNNING_5,
         RolloutState.RUNNING_25,
         RolloutState.RUNNING_50,
+        RolloutState.RELEASED,
     }
 
     def __init__(self, store: InMemoryExperimentStore) -> None:

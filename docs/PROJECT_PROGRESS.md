@@ -1,8 +1,8 @@
 # Guardrail Project Progress Tracker
 
 **Last updated:** 2026-08-18
-**Overall completion:** 36 of 50 planned delivery items (72%)
-**Current focus:** Phase 5 metrics-as-code and rollout automation
+**Overall completion:** 43 of 50 planned delivery items (86%)
+**Current focus:** Phase 6 UI, chaos demo, and portfolio packaging
 **Delivery status:** On track; no active implementation blocker
 
 This tracker records delivered outcomes, verification evidence, remaining scope,
@@ -18,11 +18,53 @@ and risks. The detailed product and architecture specification remains in the
 | 2 — Snowflake ingestion and raw layer | **Complete** | 8/8 | 100% | The complete ingestion, quarantine, replay, and reconciliation loop is live. | Preserve the acceptance evidence as a regression test. |
 | 3 — Experiment models and metrics | **Complete** | 7/7 | 100% | Live dbt build, freshness, and analytical smoke gates pass. | Preserve the Phase 3 acceptance as a regression gate. |
 | 4 — Integrity and statistics | **Complete** | 7/7 | 100% | Corrupt and underpowered decisions are blocked and every analysis is reproducibly snapshotted. | Preserve Phase 4 acceptance as a regression gate. |
-| 5 — Metrics and rollout automation | Not started | 0/7 | 0% | Phase 4 now supplies auditable decision inputs. | Define and validate the metric YAML schema. |
-| 6 — UI and portfolio packaging | Not started | 0/7 | 0% | — | Depends on the end-to-end decision loop. |
-| **Total** | **In progress** | **36/50** | **72%** | Phase 4 integrity, inference, power, and persistence are complete. | Begin Phase 5 metrics-as-code. |
+| 5 — Metrics and rollout automation | **Complete** | 7/7 | 100% | Versioned metrics compile and policy decisions persist with complete lineage. | Preserve Phase 5 acceptance as a regression gate. |
+| 6 — UI and portfolio packaging | Not started | 0/7 | 0% | The end-to-end decision loop is now available. | Build the Streamlit experiment and results UI. |
+| **Total** | **In progress** | **43/50** | **86%** | Phases 0–5 are complete and live Snowflake acceptance passes. | Begin Phase 6 control UI. |
 
 ## Latest shipped milestone
+
+### Phase 5 metrics-as-code and rollout automation
+
+Delivered on 2026-08-18:
+
+- [x] Added a strict Draft 2020-12 metric schema and four version-1 YAML definitions
+  for conversion, cancellation, payment failure, and delivery duration.
+- [x] Validated event, entity, field, denominator, and attribution references against
+  the executable version-1 product-event contracts.
+- [x] Compiled proportion and continuous definitions into deterministic, parameterized,
+  reviewable Snowflake SQL over eligible exposures and attributed outcomes.
+- [x] Added canonical definition hashes, compiled-SQL hashes, content-addressed artifact
+  IDs, immutable version conflict detection, and explicit activation.
+- [x] Implemented the `5% → 25% → 50% → released` rollout state machine with safe
+  continue, pause, and terminate paths.
+- [x] Evaluated practical primary-metric improvement plus cancellation, payment-failure,
+  and delivery-time policies loaded from the active metric artifacts after the Phase 4
+  integrity and power gates.
+- [x] Persisted decisions and transitions atomically with policy, product evidence,
+  human approval, and exact health/analysis snapshot lineage; exposed history and
+  transition APIs plus an executable CLI.
+
+Live Phase 5 acceptance for `ranking_phase3_20260806`:
+
+| Check | Observed | Result |
+| --- | --- | --- |
+| Phase 5 DDL | 7 statements; 3 `CONTROL` tables | Pass |
+| Metric definitions | 4 active version-1 artifacts with distinct 64-character hashes | Pass |
+| Compiler retry | Same four artifact IDs; row count remained 4 | Idempotent |
+| Compiled conversion SQL | 185 control users at 0.3297; 9 treatment users at 0.5556 | Query validated |
+| Product-guardrail evidence | Cancellation, payment-failure, and delivery summaries returned | Query validated |
+| Rollout decision | `PAUSE` because Phase 4 integrity is `BLOCKED` | Correct safety action |
+| Decision/transition retry | Same IDs; one row in each audit table | Idempotent |
+| Snapshot lineage | Existing health and analysis snapshot IDs preserved | Pass |
+
+Decision: `decision_48aac6f58e0b21bb45e902de0427e939fe3e48f355ba0c6c74932a37651f7cd7`
+
+Transition: `transition_99daf1b5cd4a402a7edd067a9afbed4fd10cdc0989735dd96097a1af81b7138f`
+
+Phase 5 is complete. Healthy ramp and harmful-guardrail behavior pass deterministic
+regression fixtures; the deliberately faulty live experiment correctly pauses before
+product evidence can override failed integrity.
 
 ### Phase 4 reproducible analysis snapshots
 
@@ -344,7 +386,12 @@ Replay batch: `7dd00d5e-abc3-4019-88ec-208851ea7884`
 
 | Verification | Current result | Command or evidence |
 | --- | --- | --- |
-| Complete Python test suite | 101 passed | `uv run pytest` |
+| Complete Python test suite | 118 passed | `uv run pytest` |
+| Phase 5 metric and rollout regression suite | 16 passed; schema, compiler, active-policy loading, state, persistence contract, and API paths covered | `uv run pytest tests/test_metrics.py tests/test_rollout.py` |
+| Live Phase 5 control-table deployment | 7 statements applied; 3 tables verified | `uv run guardrail-snowflake-setup-rollout` |
+| Live metric artifact publication | 4 active, deterministic version-1 artifacts; retry remained at 4 rows | `uv run guardrail-metric-compile metrics/*.yml --persist --activate` |
+| Live compiled metric SQL | Control/treatment conversion rows returned from Snowflake | Execute persisted `order_conversion_rate` artifact for the acceptance experiment |
+| Live Phase 5 decision | Known integrity faults produced one idempotent `PAUSE` decision and transition | `uv run guardrail-phase5-decision ranking_phase3_20260806 --approved-by product-owner` |
 | Phase 4 integrity regression suite | Passed; healthy data accepted and corrupt data blocked | `uv run pytest tests/test_integrity.py` |
 | Phase 4 statistical regression suite | Passed; complete, partial, sparse, underpowered, unequal-allocation, and integrity-blocked paths covered | `uv run pytest tests/test_analysis.py` |
 | Live Phase 4 integrity report | Seven checks evaluated; known faulty dataset correctly blocked | `uv run guardrail-phase4-integrity-check ranking_phase3_20260806` |
@@ -370,21 +417,21 @@ Replay batch: `7dd00d5e-abc3-4019-88ec-208851ea7884`
 
 ## Active work board
 
-### Completed — Phase 4 integrity and statistics
+### Completed — Phase 5 metrics-as-code and rollout automation
 
-- [x] Implement sample-ratio mismatch detection.
-- [x] Detect variant flicker and assignment/exposure inconsistencies.
-- [x] Detect freshness skew, event loss, duplicates, and late data.
-- [x] Implement proportion and continuous metric analysis.
-- [x] Block statistical decisions when required integrity checks fail.
-- [x] Add confidence intervals and allocation-aware sample-size requirements.
-- [x] Persist reproducible health and analysis snapshots.
+- [x] Define the versioned metric YAML schema.
+- [x] Validate event, entity, attribution, and guardrail references.
+- [x] Compile validated definitions into reviewable Snowflake SQL.
+- [x] Version and activate metric definitions and compiled artifacts.
+- [x] Implement the progressive rollout state machine.
+- [x] Evaluate practical and multi-metric guardrail policies.
+- [x] Persist explainable, snapshot-linked decision and transition records.
 
-### Next — Phase 5 metrics-as-code
+### Next — Phase 6 UI and portfolio packaging
 
-- [ ] Define the versioned metric YAML schema.
-- [ ] Validate event, entity, attribution, and guardrail references.
-- [ ] Compile validated definitions into reviewable Snowflake SQL.
+- [ ] Build Streamlit experiment configuration and result pages.
+- [ ] Visualize integrity, freshness, metrics, and decision history.
+- [ ] Script the three reproducible demo scenarios.
 
 ## Risks and decisions requiring attention
 

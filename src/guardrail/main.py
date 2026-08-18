@@ -25,6 +25,7 @@ from guardrail.domain.integrity import (
     IntegrityEvidenceError,
     IntegrityEvidenceRepository,
 )
+from guardrail.domain.metrics import MetricArtifactPersistenceError
 from guardrail.domain.replay import (
     InvalidReplayPayloadError,
     RejectedEvent,
@@ -35,6 +36,16 @@ from guardrail.domain.replay import (
     ReplayRequest,
     ReplayWorkflow,
 )
+from guardrail.domain.rollout import (
+    DecisionEvidenceError,
+    DecisionPersistenceError,
+    InvalidRolloutTransitionError,
+    RolloutDecisionRecord,
+    RolloutPolicyError,
+    RolloutTransitionOutcome,
+    RolloutWorkflow,
+    TransitionRequest,
+)
 from guardrail.domain.transport import (
     EventDispatcher,
     EventDispatchError,
@@ -42,14 +53,20 @@ from guardrail.domain.transport import (
 )
 from guardrail.infrastructure.analysis import SnowflakeAnalysisRepository
 from guardrail.infrastructure.integrity import SnowflakeIntegrityRepository
+from guardrail.infrastructure.metrics import SnowflakeMetricArtifactRepository
 from guardrail.infrastructure.redpanda import RedpandaEventDispatcher
 from guardrail.infrastructure.replay import SnowflakeReplayRepository
+from guardrail.infrastructure.rollout import (
+    SnowflakeDecisionEvidenceRepository,
+    SnowflakeDecisionRepository,
+)
 from guardrail.infrastructure.snapshots import SnowflakeAnalysisSnapshotRepository
 from guardrail.infrastructure.streaming import SnowpipeEventPublisher
 from guardrail.services.analysis import ExperimentAnalysisService
 from guardrail.services.assignment import AssignmentService
 from guardrail.services.integrity import IntegrityService
 from guardrail.services.replay import ReplayService
+from guardrail.services.rollout import RolloutPolicy, RolloutPolicyEvaluator, RolloutService
 from guardrail.services.simulator import DEFAULT_SIMULATION_START, MarketplaceSimulator
 from guardrail.services.store import (
     ExperimentAlreadyExistsError,
@@ -68,6 +85,7 @@ def create_app(
     integrity_repository: IntegrityEvidenceRepository | None = None,
     analysis_repository: AnalysisEvidenceRepository | None = None,
     analysis_snapshot_repository: AnalysisSnapshotRepository | None = None,
+    rollout_workflow: RolloutWorkflow | None = None,
 ) -> FastAPI:
     experiment_store = store or InMemoryExperimentStore()
     assignment_service = AssignmentService(experiment_store)
@@ -79,6 +97,7 @@ def create_app(
     use_default_snapshot_repository = analysis_repository is None
     metric_evidence_repository = analysis_repository
     snapshot_repository = analysis_snapshot_repository
+    rollout_service = rollout_workflow
     integrity_service: IntegrityService | None = None
     analysis_service: ExperimentAnalysisService | None = None
     snowflake_settings: SnowflakeSettings | None = None
@@ -142,6 +161,24 @@ def create_app(
                 snapshot_repository=snapshot_repository,
             )
         return analysis_service
+
+    def get_rollout_workflow() -> RolloutWorkflow:
+        nonlocal rollout_service
+        if rollout_service is None:
+            settings = get_snowflake_settings()
+            active_metrics = SnowflakeMetricArtifactRepository(settings).list_active()
+            rollout_service = RolloutService(
+                experiment_store,
+                get_analysis_service(),
+                SnowflakeDecisionEvidenceRepository(settings),
+                SnowflakeDecisionRepository(settings),
+                evaluator=RolloutPolicyEvaluator(
+                    RolloutPolicy.from_metric_definitions(
+                        artifact.definition for artifact in active_metrics
+                    )
+                ),
+            )
+        return rollout_service
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -242,6 +279,64 @@ def create_app(
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Experiment analysis snapshot could not be persisted.",
+            ) from exc
+
+    @application.get(
+        "/experiments/{experiment_id}/decisions",
+        response_model=list[RolloutDecisionRecord],
+        tags=["experiments"],
+    )
+    def get_experiment_decisions(experiment_id: str) -> tuple[RolloutDecisionRecord, ...]:
+        try:
+            return get_rollout_workflow().list_decisions(experiment_id)
+        except ExperimentNotFoundError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Experiment '{experiment_id}' was not found.",
+            ) from exc
+        except (
+            DecisionPersistenceError,
+            MetricArtifactPersistenceError,
+            RolloutPolicyError,
+        ) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Rollout decision history is temporarily unavailable.",
+            ) from exc
+
+    @application.post(
+        "/experiments/{experiment_id}/transitions",
+        response_model=RolloutTransitionOutcome,
+        tags=["experiments"],
+    )
+    def apply_experiment_transition(
+        experiment_id: str,
+        request: TransitionRequest,
+    ) -> RolloutTransitionOutcome:
+        try:
+            return get_rollout_workflow().evaluate_and_transition(experiment_id, request)
+        except ExperimentNotFoundError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Experiment '{experiment_id}' was not found.",
+            ) from exc
+        except InvalidRolloutTransitionError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+        except (
+            IntegrityEvidenceError,
+            AnalysisEvidenceError,
+            AnalysisSnapshotError,
+            DecisionEvidenceError,
+            DecisionPersistenceError,
+            MetricArtifactPersistenceError,
+            RolloutPolicyError,
+        ) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Rollout decision could not be evaluated or persisted.",
             ) from exc
 
     @application.post(

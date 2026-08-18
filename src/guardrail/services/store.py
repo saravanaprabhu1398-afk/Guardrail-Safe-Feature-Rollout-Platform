@@ -78,6 +78,33 @@ class InMemoryExperimentStore:
             self._experiments[experiment_id] = launched
             return launched
 
+    def apply_rollout_state(
+        self,
+        experiment_id: str,
+        state: RolloutState,
+        *,
+        treatment_percentage: int,
+    ) -> Experiment:
+        if not 0 <= treatment_percentage <= 100:
+            raise ValueError("Treatment percentage must be between zero and 100.")
+        with self._lock:
+            experiment = self.get_experiment(experiment_id)
+            allocation_changed = treatment_percentage != experiment.treatment_percentage
+            updated = experiment.model_copy(
+                update={
+                    "state": state,
+                    "treatment_percentage": treatment_percentage,
+                    "allocation_version": (
+                        experiment.allocation_version + 1
+                        if allocation_changed
+                        else experiment.allocation_version
+                    ),
+                    "updated_at": utc_now(),
+                }
+            )
+            self._experiments[experiment_id] = updated
+            return updated
+
     def get_assignment(
         self, experiment_id: str, subject_id: str, allocation_version: int
     ) -> Assignment | None:

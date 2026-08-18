@@ -2,11 +2,11 @@
 
 > A Snowflake-powered experimentation and progressive-delivery platform for making safer product-launch decisions.
 
-**Project status:** Phases 0–4 complete; Phase 5 metrics and rollout automation is next
+**Project status:** Phases 0–5 complete; Phase 6 UI and portfolio packaging is next
 **Primary focus:** Data engineering, product infrastructure, experimentation, and reliable event processing
 **Reference domain:** A simulated food-delivery marketplace
 
-**Progress:** 36 of 50 delivery items complete (72%) — see the
+**Progress:** 43 of 50 delivery items complete (86%) — see the
 [project progress tracker](docs/PROJECT_PROGRESS.md) for shipped evidence, active
 work, risks, and the next milestone.
 
@@ -79,9 +79,17 @@ The first vertical slice is runnable locally and includes:
   decision gate that preserves descriptive results without permitting a rollout decision
 - Immutable, content-addressed health and analysis snapshots in Snowflake `CONTROL`,
   with exact evidence, versioned policies, reports, hashes, and health lineage
+- A strict metric-definition schema plus four versioned YAML metrics validated against
+  the registered event and entity contracts
+- Deterministic compilation into parameterized Snowflake SQL with immutable definition
+  and SQL hashes, activation status, and idempotent artifact persistence
+- Policy-driven `RAMP`, `CONTINUE`, `PAUSE`, and `TERMINATE` recommendations over the
+  progressive rollout state machine
+- Atomic Snowflake decision and transition audit records linked to the exact Phase 4
+  analysis and health snapshots, with API and CLI workflows
 
-Metrics-as-code, rollout automation, and the control UI remain planned in the phases
-below.
+The Streamlit control UI, reproducible chaos demo, cost analysis, and final portfolio
+packaging remain planned in Phase 6.
 
 ---
 
@@ -277,7 +285,6 @@ GUARDRAIL
 │   ├── EXPERIMENTS
 │   ├── EXPERIMENT_VARIANTS
 │   ├── EVENT_CONTRACTS
-│   ├── METRIC_DEFINITIONS
 │   └── ROLLOUT_POLICIES
 ├── RAW
 │   ├── PRODUCT_EVENTS
@@ -299,6 +306,7 @@ GUARDRAIL
 │   ├── FCT_USER_EXPERIMENT_METRICS
 │   └── AGG_EXPERIMENT_RESULTS
 ├── CONTROL
+│   ├── METRIC_DEFINITIONS
 │   ├── EXPERIMENT_HEALTH_SNAPSHOTS
 │   ├── EXPERIMENT_ANALYSIS_SNAPSHOTS
 │   ├── ROLLOUT_DECISIONS
@@ -427,24 +435,31 @@ description: Share of exposed users who complete an order within 24 hours.
 owner: marketplace-growth
 entity: user_id
 type: proportion
+role: primary
 numerator:
   event: order_completed
 denominator:
   event: experiment_exposed
-attribution_window: 24_hours
+attribution_window:
+  value: 24
+  unit: hours
 direction: increase
-minimum_detectable_effect: 0.02
+minimum_detectable_effect: 0.05
+decision_rule:
+  kind: minimum_absolute_improvement
+  value: 0.02
 ```
 
-The planned compiler will:
+The compiler:
 
-1. Validate the YAML definition against a schema.
-2. Resolve event and entity references against registered contracts.
-3. Generate parameterized, reviewable Snowflake SQL.
-4. Create or update the corresponding dbt or Dynamic Table model.
-5. Attach standard uniqueness, null, freshness, and reconciliation tests.
-6. Record the compiled SQL hash and metric version.
-7. Require validation before the metric can be activated.
+1. Validates each YAML definition against a strict Draft 2020-12 schema.
+2. Resolves event, entity, field, denominator, and attribution references against the
+   registered version-1 event contracts.
+3. Generates parameterized, reviewable Snowflake SQL over eligible exposure and
+   attributed-outcome facts.
+4. Records canonical definition and compiled-SQL SHA-256 hashes with the metric version.
+5. Rejects changed content that tries to reuse an existing version.
+6. Requires a validated artifact before that version can be activated.
 
 Changing a metric creates a new version so previous experiment results remain reproducible.
 
@@ -473,16 +488,15 @@ Each check emits a structured result with severity, observed value, expected ran
 
 ## Statistical analysis
 
-The initial analysis engine intentionally stays focused. The first five capabilities
-are implemented; the remaining guardrails are Phase 5 work:
+The initial analysis and policy engines intentionally stay focused:
 
 - Difference in proportions for conversion-style metrics — **implemented**
 - Welch's t-test for continuous metrics — **implemented**
 - Absolute and relative lift — **implemented**
 - Confidence intervals — **implemented**
 - Minimum sample size and power calculation — **implemented**
-- Practical-significance thresholds
-- Multiple-metric guardrail evaluation
+- Practical-significance thresholds — **implemented**
+- Multiple-metric guardrail evaluation — **implemented**
 
 An experiment cannot be declared successful solely because `p < 0.05`. A rollout decision requires:
 
@@ -539,8 +553,8 @@ Automated recommendations remain explainable. Human approval can be required for
 | `POST` | `/simulations/{simulation_id}/failures` | Inject a selected data failure. |
 | `GET` | `/experiments/{experiment_id}/health` | Return allocation, consistency, and telemetry-health results. **Implemented.** |
 | `GET` | `/experiments/{experiment_id}/results` | Return integrity-gated metric and statistical results. **Implemented.** |
-| `GET` | `/experiments/{experiment_id}/decisions` | Return rollout decision history. |
-| `POST` | `/experiments/{experiment_id}/transitions` | Approve or apply an allowed transition. |
+| `GET` | `/experiments/{experiment_id}/decisions` | Return rollout decision history. **Implemented.** |
+| `POST` | `/experiments/{experiment_id}/transitions` | Evaluate, approve, persist, and apply an allowed transition. **Implemented.** |
 
 ---
 
@@ -685,13 +699,13 @@ The estimated timeline is **6–8 weeks part-time**. Each phase ends with a demo
 
 **Duration:** 1–1.5 weeks
 
-- [ ] Define the metric YAML schema.
-- [ ] Validate event, entity, and attribution references.
-- [ ] Compile definitions into reviewable Snowflake SQL.
-- [ ] Version metric definitions and compiled artefacts.
-- [ ] Implement the rollout state machine.
-- [ ] Evaluate rollout and guardrail policies.
-- [ ] Persist explainable decision and transition records.
+- [x] Define the metric YAML schema.
+- [x] Validate event, entity, and attribution references.
+- [x] Compile definitions into reviewable Snowflake SQL.
+- [x] Version metric definitions and compiled artefacts.
+- [x] Implement the rollout state machine.
+- [x] Evaluate rollout and guardrail policies.
+- [x] Persist explainable decision and transition records.
 
 **Exit criterion:** A new metric can be added without handwritten model SQL, healthy experiments can ramp, and harmful experiments pause automatically.
 
@@ -946,6 +960,9 @@ uv run guardrail-phase3-smoke
 uv run guardrail-phase4-integrity-check ranking_phase3_20260806
 uv run guardrail-snowflake-setup-analysis
 uv run guardrail-phase4-analysis ranking_phase3_20260806
+uv run guardrail-snowflake-setup-rollout
+uv run guardrail-metric-compile metrics/*.yml --persist --activate
+uv run guardrail-phase5-decision ranking_phase3_20260806 --approved-by product-owner
 ```
 
 The build creates one `CLEAN` staging view, six `CORE` Dynamic Tables, and two
@@ -981,6 +998,15 @@ timestamp. Blocked experiments are also auditable: they store the health evidenc
 blocked report while keeping analysis evidence null because the metric query was never
 allowed to run.
 
+The Phase 5 setup creates `CONTROL.METRIC_DEFINITIONS`,
+`CONTROL.ROLLOUT_DECISIONS`, and `CONTROL.STATE_TRANSITIONS`. The compiler validates
+and publishes all metric YAML files, while the decision command evaluates the latest
+snapshot-backed result using decision thresholds loaded from those active artifacts.
+The command exits with status 2 for a
+safety action (`PAUSE` or `TERMINATE`); that status is expected for the deliberately
+faulty acceptance experiment. Identical retries reuse the same content-addressed
+decision and transition IDs.
+
 ### Setup required from the project owner
 
 Nothing external is required for local simulation or the Redpanda transport. Docker
@@ -998,7 +1024,8 @@ After creating the `GUARDRAIL_ENGINEER` role and a role-restricted PAT, run
 [`snowflake/bootstrap/01_platform.sql`](snowflake/bootstrap/01_platform.sql)
 once in Snowsight as `ACCOUNTADMIN`. Then run
 `uv run guardrail-snowflake-setup-ingestion` and
-`uv run guardrail-snowflake-setup-analysis` as `GUARDRAIL_ENGINEER`.
+`uv run guardrail-snowflake-setup-analysis` and
+`uv run guardrail-snowflake-setup-rollout` as `GUARDRAIL_ENGINEER`.
 The current development account has completed these steps and uses a restricted PAT
 network policy.
 
