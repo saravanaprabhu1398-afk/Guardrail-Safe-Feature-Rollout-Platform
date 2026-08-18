@@ -104,6 +104,8 @@ The first vertical slice is runnable locally and includes:
 The codebase now has a production-capable runtime baseline. Customer-traffic readiness still
 requires the environment-specific restore, load, identity, network, alerting, canary, and rollback
 evidence listed in the [production acceptance runbook](docs/runbooks/production-deployment.md).
+The isolated [local production acceptance](docs/runbooks/local-production-acceptance.md) exercises
+the same production code paths with TLS, OIDC/RBAC, PostgreSQL, and Redpanda before deployment.
 
 ---
 
@@ -934,6 +936,15 @@ The [production deployment and acceptance runbook](docs/runbooks/production-depl
 documents managed-service prerequisites, OIDC roles, database landing tables, Terraform/Helm
 installation, manual validation, operational queries, rollback rules, and the gates that must pass
 before customer traffic is permitted.
+
+Before deploying, run the complete local production-mode acceptance:
+
+```bash
+./scripts/run-local-production-acceptance.sh
+```
+
+It leaves an HTTPS gateway on <https://localhost:8443> for the manual flow in the
+[local production acceptance runbook](docs/runbooks/local-production-acceptance.md).
 
 ### Try the first experiment
 

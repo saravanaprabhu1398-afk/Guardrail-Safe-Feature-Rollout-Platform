@@ -10,6 +10,8 @@ Use these runbooks in order:
    inspect where data lands, and respond to safety actions.
 4. [Production deployment and acceptance](production-deployment.md) — install the
    PostgreSQL/OIDC/Kubernetes runtime and execute the customer-traffic sign-off gates.
+5. [Local production acceptance](local-production-acceptance.md) — run the isolated
+   TLS/OIDC/PostgreSQL/Redpanda production-mode suite and repeat its flow manually.
 
 The [five-minute demo script](../demo/five-minute-demo-script.md) turns the same
 commands into a concise portfolio walkthrough.

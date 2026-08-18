@@ -2,8 +2,8 @@
 
 **Last updated:** 2026-08-18
 **Product-plan completion:** 49 of 50 delivery items (98%); demo recording remains
-**Production-runtime status:** Implementation complete; environment acceptance pending
-**Current focus:** Execute production-like restore, load, identity, network, and rollback gates
+**Production-runtime status:** Local production acceptance passed; target-environment acceptance pending
+**Current focus:** Execute managed-service, multi-replica, alerting, canary, and rollback gates
 
 This tracker records delivered outcomes, verification evidence, remaining scope,
 and risks. The detailed product and architecture specification remains in the
@@ -20,7 +20,7 @@ and risks. The detailed product and architecture specification remains in the
 | 4 — Integrity and statistics | **Complete** | 7/7 | 100% | Corrupt and underpowered decisions are blocked and every analysis is reproducibly snapshotted. | Preserve Phase 4 acceptance as a regression gate. |
 | 5 — Metrics and rollout automation | **Complete** | 7/7 | 100% | Versioned metrics compile and policy decisions persist with complete lineage. | Preserve Phase 5 acceptance as a regression gate. |
 | 6 — UI and portfolio packaging | **In progress** | 6/7 | 86% | UI, demos, CI gates, cost analysis, and runbooks pass; recording remains. | Record and publish the five-minute demo. |
-| 7 — Production hardening | **Acceptance pending** | 9/9 code | 100% code | Durable state, OIDC/RBAC, atomic outbox, telemetry, hardened image, Helm, and Terraform are implemented. | Pass the external production sign-off gates. |
+| 7 — Production hardening | **Local accepted; external pending** | 9/9 code | 100% code | Production-mode TLS, RBAC, persistence, restore, load, and dependency recovery pass locally. | Pass the target-environment sign-off gates. |
 | **Product plan** | **In progress** | **49/50** | **98%** | The clone-to-demo product path is implemented and tested. | Complete recording independently of production acceptance. |
 
 ## Latest shipped milestone
@@ -48,9 +48,31 @@ Implemented on 2026-08-18:
 - [x] Added real-PostgreSQL CI integration, Helm/Terraform gates, production dependency audit, and
   a customer-traffic acceptance/rollback runbook.
 
-This is a production-capable code baseline, not customer-traffic sign-off. The managed services,
-OIDC tenant, backup restore, load/soak, alert routing, network policy, secret rotation, canary, and
-rollback rehearsal must pass in the target environment.
+This is a production-capable code baseline, not customer-traffic sign-off. The target managed
+services, real OIDC tenant, multi-replica load/soak, alert routing, Kubernetes network policy,
+secret rotation, canary, and rollback rehearsal must still pass in the deployed environment.
+
+### Local production acceptance
+
+Passed on 2026-08-18 in a clean, isolated Docker project:
+
+- [x] Production fail-closed configuration, one-time Alembic migration, HTTPS gateway, hidden API
+  documentation, trusted hosts, CORS, request limits, security headers, and non-root runtime.
+- [x] CA-verified PostgreSQL connections with plaintext rejection and TLS/SCRAM Redpanda with a
+  least-privilege producer account.
+- [x] Signed OIDC tokens, issuer/audience/expiry validation, endpoint RBAC, unknown-role filtering,
+  and approval-subject impersonation rejection.
+- [x] Stable assignment under 48 concurrent and 300 local load requests, with a p95 below the
+  1-second local regression threshold and exactly one PostgreSQL assignment row.
+- [x] Broker acknowledgement plus independent consumption of the exact event; stable Prometheus
+  route labels and credential-leak log scan.
+- [x] API restart persistence, idempotent migration rerun, `pg_dump` restore comparison,
+  PostgreSQL degraded/recovered readiness, and Redpanda safe-failure/recovery behavior.
+- [x] Host gateway trust, TLS 1.2 acceptance, TLS 1.1 rejection, and edge-only port publication.
+
+The repeatable command and manual flow are in the
+[local production acceptance runbook](runbooks/local-production-acceptance.md). The latest
+ignored evidence file is `.local-production/evidence.json`.
 
 ### Phase 6 control UI and reproducible portfolio package
 
@@ -450,7 +472,8 @@ Replay batch: `7dd00d5e-abc3-4019-88ec-208851ea7884`
 
 | Verification | Current result | Command or evidence |
 | --- | --- | --- |
-| Complete Python test suite | 146 passed, 1 real-PostgreSQL test skipped locally | `uv run pytest` |
+| Local production acceptance | Passed TLS/OIDC/RBAC, concurrency/load, persistence, backup/restore, broker delivery, observability, and real dependency failure/recovery | `./scripts/run-local-production-acceptance.sh` |
+| Complete Python test suite | 147 passed against real PostgreSQL | `GUARDRAIL_POSTGRES_TEST_URL=... uv run pytest` |
 | PostgreSQL schema compilation | Alembic rendered all five operational tables plus its version table | `uv run alembic upgrade head --sql` |
 | Production security and atomicity | OIDC/RBAC, headers, body limit, durable assignments, atomic decisions, retry/dead-letter tests passed | `uv run pytest tests/test_security.py tests/test_postgres_store.py` |
 | Production dependency audit | No known vulnerabilities found | `uv export --frozen --no-dev ... | uv run pip-audit --requirement /dev/stdin` |
@@ -497,7 +520,14 @@ Replay batch: `7dd00d5e-abc3-4019-88ec-208851ea7884`
 - [x] Atomic rollout/outbox boundary and retry worker.
 - [x] Metrics, probes, JSON logs, hardened container, Helm, Terraform, and CI gates.
 
-### Next — production environment acceptance
+### Completed — local production acceptance
+
+- [x] Validate TLS-only PostgreSQL and TLS/SCRAM Redpanda with production fail-closed settings.
+- [x] Validate OIDC/RBAC, security middleware, stable concurrent assignments, and broker delivery.
+- [x] Validate restart persistence, migration idempotency, backup restore, and dependency recovery.
+- [x] Validate edge-only host exposure, non-root execution, metrics, and credential-free logs.
+
+### Next — target production environment acceptance
 
 - [ ] Pass restore and RPO/RTO rehearsal.
 - [ ] Pass peak-load and soak tests against two or more API replicas.

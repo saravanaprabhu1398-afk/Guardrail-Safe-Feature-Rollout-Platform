@@ -1,0 +1,50 @@
+redpanda:
+  data_directory: /var/lib/redpanda/data
+  node_id: 0
+  empty_seed_starts_cluster: true
+  seed_servers: []
+  rpc_server:
+    address: 0.0.0.0
+    port: 33145
+  advertised_rpc_api:
+    address: redpanda-prodtest
+    port: 33145
+  kafka_api:
+    - name: internal
+      address: 0.0.0.0
+      port: 9092
+      authentication_method: sasl
+  advertised_kafka_api:
+    - name: internal
+      address: redpanda-prodtest
+      port: 9092
+  kafka_api_tls:
+    - name: internal
+      enabled: true
+      require_client_auth: false
+      cert_file: /certs/redpanda.crt
+      key_file: /certs/redpanda.key
+      truststore_file: /certs/ca.crt
+  admin:
+    - name: admin
+      address: 0.0.0.0
+      port: 9644
+  enable_sasl: true
+  superusers:
+    - guardrail-admin
+
+rpk:
+  overprovisioned: true
+  tune_network: false
+  tune_disk_scheduler: false
+  tune_disk_nomerges: false
+  tune_disk_write_cache: false
+  tune_disk_irq: false
+  tune_cpu: false
+  tune_aio_events: false
+  tune_clocksource: false
+  tune_swappiness: false
+  coredump_dir: /var/lib/redpanda/coredump
+
+pandaproxy: {}
+schema_registry: {}

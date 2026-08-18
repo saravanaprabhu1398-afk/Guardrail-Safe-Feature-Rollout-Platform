@@ -1,0 +1,249 @@
+name: guardrail-production-test
+
+x-guardrail-image: &guardrail-image
+  image: guardrail-platform:local-production-test
+
+x-runtime-environment: &runtime-environment
+  GUARDRAIL_ENV: production
+  GUARDRAIL_STORE_BACKEND: postgres
+  DATABASE_URL: "postgresql+psycopg://guardrail:local-prodtest-db-password@postgres-prodtest:5432/guardrail?sslmode=verify-full&sslrootcert=/certs/ca.crt"
+  AUTH_ENABLED: "true"
+  OIDC_ISSUER: https://oidc-prodtest:9443
+  OIDC_AUDIENCE: guardrail-api
+  OIDC_JWKS_URL: https://oidc-prodtest:9443/jwks.json
+  CORS_ORIGINS: https://gateway-prodtest:8443
+  TRUSTED_HOSTS: gateway-prodtest,guardrail-api-prodtest,localhost
+  MAX_REQUEST_BYTES: "2048"
+
+x-redpanda-client-environment: &redpanda-client-environment
+  GUARDRAIL_EVENT_TRANSPORT: redpanda
+  REDPANDA_BOOTSTRAP_SERVERS: redpanda-prodtest:9092
+  REDPANDA_TOPIC: guardrail.product-events.prodtest.v1
+  REDPANDA_CLIENT_ID: guardrail-api-prodtest
+  REDPANDA_SECURITY_PROTOCOL: SASL_SSL
+  REDPANDA_SASL_MECHANISM: SCRAM-SHA-256
+  REDPANDA_SASL_USERNAME: guardrail-service
+  REDPANDA_SASL_PASSWORD: local-prodtest-redpanda-service-password
+  REDPANDA_SSL_CA_LOCATION: /certs/ca.crt
+
+networks:
+  production-test:
+    internal: true
+  production-test-edge:
+
+volumes:
+  production-test-ca:
+  production-test-evidence:
+  production-test-postgres-certs:
+  production-test-postgres:
+  production-test-redpanda-certs:
+  production-test-redpanda:
+  production-test-oidc-certs:
+  production-test-gateway-certs:
+
+services:
+  cert-init:
+    image: alpine/openssl:3.5.4@sha256:42c7389ef077aed0eb4e96d0abbd094083d701bbaff1313073b061c0c9cd8278
+    entrypoint: ["/bin/sh", "/test-support/generate-certs.sh"]
+    volumes:
+      - production-test-ca:/certs/public
+      - production-test-postgres-certs:/certs/postgres
+      - production-test-redpanda-certs:/certs/redpanda
+      - production-test-oidc-certs:/certs/oidc
+      - production-test-gateway-certs:/certs/gateway
+      - production-test-evidence:/evidence
+      - ./ops/local-production/generate-certs.sh:/test-support/generate-certs.sh:ro
+    networks:
+      - production-test
+
+  postgres-prodtest:
+    image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94
+    command:
+      - postgres
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/certs/postgres.crt
+      - -c
+      - ssl_key_file=/certs/postgres.key
+      - -c
+      - ssl_ca_file=/certs/ca.crt
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
+      - -c
+      - password_encryption=scram-sha-256
+    environment:
+      POSTGRES_DB: guardrail
+      POSTGRES_USER: guardrail
+      POSTGRES_PASSWORD: local-prodtest-db-password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    volumes:
+      - production-test-postgres:/var/lib/postgresql/data
+      - production-test-postgres-certs:/certs:ro
+      - ./ops/local-production/postgres-pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+    depends_on:
+      cert-init:
+        condition: service_completed_successfully
+    networks:
+      - production-test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U guardrail -d guardrail"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  oidc-prodtest:
+    <<: *guardrail-image
+    command:
+      - python
+      - /test-support/oidc_mock.py
+      - --issuer
+      - https://oidc-prodtest:9443
+      - --audience
+      - guardrail-api
+      - --certfile
+      - /certs/oidc.crt
+      - --keyfile
+      - /certs/oidc.key
+    volumes:
+      - production-test-oidc-certs:/certs:ro
+      - ./ops/local-production/oidc_mock.py:/test-support/oidc_mock.py:ro
+    depends_on:
+      cert-init:
+        condition: service_completed_successfully
+    networks:
+      - production-test
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import ssl,urllib.request;
+          context=ssl.create_default_context(cafile='/certs/ca.crt');
+          urllib.request.urlopen('https://oidc-prodtest:9443/health',context=context,timeout=2)
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redpanda-prodtest:
+    image: docker.redpanda.com/redpandadata/redpanda:v26.1.14@sha256:e61a2b5ad26a7c37b50d04c4df42db84e5ddebaa2a453143942fb621b1b09498
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        cp /test-support/redpanda.yaml /tmp/redpanda.yaml;
+        exec rpk redpanda start
+        --config=/tmp/redpanda.yaml
+        --mode=dev-container
+        --smp=1
+        --default-log-level=warn
+    volumes:
+      - production-test-redpanda:/var/lib/redpanda/data
+      - production-test-redpanda-certs:/certs:ro
+      - ./ops/local-production/redpanda.yaml:/test-support/redpanda.yaml:ro
+    depends_on:
+      cert-init:
+        condition: service_completed_successfully
+    networks:
+      - production-test
+
+  redpanda-init:
+    image: docker.redpanda.com/redpandadata/redpanda:v26.1.14@sha256:e61a2b5ad26a7c37b50d04c4df42db84e5ddebaa2a453143942fb621b1b09498
+    entrypoint: ["/bin/sh", "/test-support/init-redpanda.sh"]
+    environment:
+      REDPANDA_ADMIN_HOSTS: redpanda-prodtest:9644
+      REDPANDA_BOOTSTRAP_SERVERS: redpanda-prodtest:9092
+      REDPANDA_CA_FILE: /certs/ca.crt
+      REDPANDA_TOPIC: guardrail.product-events.prodtest.v1
+      REDPANDA_ADMIN_USERNAME: guardrail-admin
+      REDPANDA_ADMIN_PASSWORD: local-prodtest-redpanda-admin-password
+      REDPANDA_SERVICE_USERNAME: guardrail-service
+      REDPANDA_SERVICE_PASSWORD: local-prodtest-redpanda-service-password
+    volumes:
+      - production-test-ca:/certs:ro
+      - ./ops/local-production/init-redpanda.sh:/test-support/init-redpanda.sh:ro
+    depends_on:
+      redpanda-prodtest:
+        condition: service_started
+    networks:
+      - production-test
+
+  migration-prodtest:
+    <<: *guardrail-image
+    command: ["guardrail-db-upgrade"]
+    environment:
+      <<: *runtime-environment
+    volumes:
+      - production-test-ca:/certs:ro
+    depends_on:
+      postgres-prodtest:
+        condition: service_healthy
+    networks:
+      - production-test
+
+  guardrail-api-prodtest:
+    <<: *guardrail-image
+    build: .
+    environment:
+      <<: [*runtime-environment, *redpanda-client-environment]
+      SSL_CERT_FILE: /certs/ca.crt
+    volumes:
+      - production-test-ca:/certs:ro
+    depends_on:
+      migration-prodtest:
+        condition: service_completed_successfully
+      oidc-prodtest:
+        condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
+    networks:
+      - production-test
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready',timeout=2)"
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  gateway-prodtest:
+    image: nginx:1.29.1-alpine@sha256:42a516af16b852e33b7682d5ef8acbd5d13fe08fecadc7ed98605ba5e3b26ab8
+    ports:
+      - "8443:8443"
+    volumes:
+      - production-test-gateway-certs:/certs:ro
+      - ./ops/local-production/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      guardrail-api-prodtest:
+        condition: service_healthy
+    networks:
+      - production-test
+      - production-test-edge
+
+  acceptance:
+    <<: *guardrail-image
+    profiles: ["acceptance"]
+    command: ["python", "/test-support/acceptance.py", "setup"]
+    environment:
+      ACCEPTANCE_BASE_URL: https://gateway-prodtest:8443
+      ACCEPTANCE_DIRECT_API_URL: http://guardrail-api-prodtest:8000
+      ACCEPTANCE_OIDC_URL: https://oidc-prodtest:9443
+      ACCEPTANCE_CA_FILE: /certs/ca.crt
+      ACCEPTANCE_EVIDENCE_FILE: /evidence/state.json
+      ACCEPTANCE_DATABASE_URL: "postgresql://guardrail:local-prodtest-db-password@postgres-prodtest:5432/guardrail?sslmode=verify-full&sslrootcert=/certs/ca.crt"
+      ACCEPTANCE_INSECURE_DATABASE_DSN: "host=postgres-prodtest port=5432 dbname=guardrail user=guardrail password=local-prodtest-db-password sslmode=disable"
+      REDPANDA_BOOTSTRAP_SERVERS: redpanda-prodtest:9092
+      REDPANDA_TOPIC: guardrail.product-events.prodtest.v1
+      REDPANDA_ADMIN_USERNAME: guardrail-admin
+      REDPANDA_ADMIN_PASSWORD: local-prodtest-redpanda-admin-password
+    volumes:
+      - production-test-ca:/certs:ro
+      - production-test-evidence:/evidence
+      - ./ops/local-production/acceptance.py:/test-support/acceptance.py:ro
+    depends_on:
+      gateway-prodtest:
+        condition: service_started
+    networks:
+      - production-test

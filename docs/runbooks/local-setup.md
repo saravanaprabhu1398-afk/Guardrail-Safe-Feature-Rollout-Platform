@@ -16,6 +16,10 @@ uv run guardrail-phase6-demo --scenario all
 The offline path needs no cloud credentials. The three demo scenarios must report
 `passed: true`.
 
+To exercise production configuration, TLS, OIDC/RBAC, durable PostgreSQL state,
+secured Redpanda, backup/restore, and dependency recovery in an isolated Docker
+project, use the [local production acceptance runbook](local-production-acceptance.md).
+
 ## 2. Configure Snowflake without exposing the PAT
 
 Copy `.env.example` to `.env` and fill only the non-secret account and user settings.

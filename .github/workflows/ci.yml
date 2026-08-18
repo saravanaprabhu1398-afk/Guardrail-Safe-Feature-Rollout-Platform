@@ -85,7 +85,9 @@ jobs:
         run: uv run guardrail-phase6-demo --scenario all
 
       - name: Validate Docker Compose
-        run: docker compose --profile snowflake config --quiet
+        run: |
+          docker compose --profile snowflake config --quiet
+          docker compose --file docker-compose.production-test.yml config --quiet
 
       - name: Lint production Helm chart
         run: >-
