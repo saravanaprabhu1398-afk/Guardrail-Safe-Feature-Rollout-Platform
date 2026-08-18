@@ -52,8 +52,11 @@ reads version-scoped conversion counts plus delivery-time count, mean, and sampl
 variance from `METRICS.FCT_USER_EXPERIMENT_METRICS`. The service calculates a pooled
 two-proportion z-test and Welch's unequal-variance t-test from those summaries. A
 blocked health report short-circuits the warehouse metric query, so invalid telemetry
-cannot produce an interpretable statistical result. Persisted analysis snapshots,
-confidence intervals, and formal sample-size calculations remain Phase 4 work.
+cannot produce an interpretable statistical result. The metric results include 95%
+confidence intervals and allocation-aware normal-approximation sample requirements
+targeting 80% power for configured minimum detectable effects. Underpowered results
+remain observable but cannot authorize a decision. Persisted analysis snapshots remain
+the final Phase 4 delivery item.
 
 ## Run
 

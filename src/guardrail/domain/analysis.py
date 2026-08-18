@@ -25,12 +25,14 @@ class StatisticalTest(StrEnum):
 
 class MetricAnalysisStatus(StrEnum):
     COMPLETE = "COMPLETE"
+    UNDERPOWERED = "UNDERPOWERED"
     INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
 
 
 class ExperimentAnalysisStatus(StrEnum):
     COMPLETE = "COMPLETE"
     PARTIAL = "PARTIAL"
+    UNDERPOWERED = "UNDERPOWERED"
     INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
     BLOCKED = "BLOCKED"
 
@@ -102,7 +104,44 @@ class MetricAnalysisResult(BaseModel):
     test_statistic: float | None
     degrees_of_freedom: float | None
     p_value: float | None
+    confidence_level: float | None = Field(default=None, gt=0, lt=1)
+    confidence_interval_lower: float | None = None
+    confidence_interval_upper: float | None = None
+    minimum_detectable_effect: float | None = Field(default=None, gt=0)
+    target_power: float | None = Field(default=None, gt=0, lt=1)
+    estimated_power: float | None = Field(default=None, ge=0, le=1)
+    required_control_sample_size: int | None = Field(default=None, ge=1)
+    required_treatment_sample_size: int | None = Field(default=None, ge=1)
+    sample_size_satisfied: bool | None = None
     message: str
+
+    @model_validator(mode="after")
+    def validate_interval_and_sample_plan(self) -> MetricAnalysisResult:
+        interval = (
+            self.confidence_level,
+            self.confidence_interval_lower,
+            self.confidence_interval_upper,
+        )
+        if any(value is not None for value in interval) and any(
+            value is None for value in interval
+        ):
+            raise ValueError("confidence interval fields must be provided together")
+        if interval[1] is not None and interval[2] is not None and interval[1] > interval[2]:
+            raise ValueError("confidence interval lower bound cannot exceed upper bound")
+
+        sample_plan = (
+            self.minimum_detectable_effect,
+            self.target_power,
+            self.estimated_power,
+            self.required_control_sample_size,
+            self.required_treatment_sample_size,
+            self.sample_size_satisfied,
+        )
+        if any(value is not None for value in sample_plan) and any(
+            value is None for value in sample_plan
+        ):
+            raise ValueError("sample-size planning fields must be provided together")
+        return self
 
 
 class ExperimentAnalysisReport(BaseModel):

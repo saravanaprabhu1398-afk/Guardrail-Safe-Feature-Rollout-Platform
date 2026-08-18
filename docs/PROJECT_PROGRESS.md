@@ -1,8 +1,8 @@
 # Guardrail Project Progress Tracker
 
 **Last updated:** 2026-08-18
-**Overall completion:** 34 of 50 planned delivery items (68%)
-**Current focus:** Phase 4 confidence intervals, sample sizing, and reproducible snapshots
+**Overall completion:** 35 of 50 planned delivery items (70%)
+**Current focus:** Phase 4 reproducible analysis snapshots
 **Delivery status:** On track; no active implementation blocker
 
 This tracker records delivered outcomes, verification evidence, remaining scope,
@@ -17,12 +17,42 @@ and risks. The detailed product and architecture specification remains in the
 | 1 — Simulator and assignment | **Complete** | 7/7 | 100% | Local API, simulator, and acknowledged Redpanda transport pass. | Preserve the transport acceptance as a regression gate. |
 | 2 — Snowflake ingestion and raw layer | **Complete** | 8/8 | 100% | The complete ingestion, quarantine, replay, and reconciliation loop is live. | Preserve the acceptance evidence as a regression test. |
 | 3 — Experiment models and metrics | **Complete** | 7/7 | 100% | Live dbt build, freshness, and analytical smoke gates pass. | Preserve the Phase 3 acceptance as a regression gate. |
-| 4 — Integrity and statistics | **In progress** | 5/7 | 71% | Seven integrity gates and two integrity-gated statistical tests are live. | Add confidence intervals, required sample size, and snapshots. |
+| 4 — Integrity and statistics | **In progress** | 6/7 | 86% | Integrity, statistical tests, confidence intervals, and power gates are live. | Persist reproducible analysis snapshots. |
 | 5 — Metrics and rollout automation | Not started | 0/7 | 0% | — | Depends on integrity and analysis results. |
 | 6 — UI and portfolio packaging | Not started | 0/7 | 0% | — | Depends on the end-to-end decision loop. |
-| **Total** | **In progress** | **34/50** | **68%** | Integrity-gated Phase 4 statistics are live against Snowflake. | Complete statistical uncertainty and persistence. |
+| **Total** | **In progress** | **35/50** | **70%** | Phase 4 now blocks both corrupt and underpowered results. | Complete reproducible analysis persistence. |
 
 ## Latest shipped milestone
+
+### Phase 4 confidence intervals and power gates
+
+Delivered on 2026-08-18:
+
+- [x] Added two-sided 95% Wilson-score-based difference intervals for conversion.
+- [x] Added two-sided 95% Student-t confidence intervals for Welch delivery-time
+  mean differences using the calculated unequal-variance degrees of freedom.
+- [x] Defined default minimum detectable effects of five percentage points for
+  conversion and five minutes for delivery time at 80% target power.
+- [x] Calculated normal-approximation control and treatment sample requirements using
+  the configured allocation ratio rather than assuming a balanced experiment.
+- [x] Reported estimated power and whether both per-variant requirements are met.
+- [x] Added explicit metric and experiment `UNDERPOWERED` states. Descriptive
+  estimates, intervals, and p-values remain inspectable while decisions stay blocked.
+- [x] Preserved robust conversion intervals and sample planning when sparse binary
+  cells make the pooled z-test itself ineligible.
+- [x] Added balanced, 95/5 allocation, sparse-data, complete, and underpowered tests.
+
+Live diagnostic evidence for `ranking_phase3_20260806`:
+
+| Metric | 95% effect interval | Estimated power | Required control / treatment | Result |
+| --- | ---: | ---: | ---: | --- |
+| Conversion rate | -13.37 to +54.52 percentage points | 6.05% | 14,744 / 776 | Insufficient binary cells |
+| Delivery minutes | -15.18 to +13.13 minutes | 15.15% | 848 / 45 | Underpowered |
+
+These diagnostic calculations deliberately bypassed the health gate only to validate
+the live Snowflake summaries. The supported CLI and API continue to return `BLOCKED`
+with no metrics for this known-corrupt experiment. A healthy, sufficiently powered
+live experiment remains necessary to demonstrate the complete path.
 
 ### Phase 4 integrity-gated statistical analysis
 
@@ -52,9 +82,7 @@ Live analysis evidence for `ranking_phase3_20260806`:
 | Delivery evidence query | 56 control; 5 treatment observations | Query validated; not interpreted |
 
 The healthy analysis path is covered with deterministic fixtures. A new healthy live
-experiment is still required to demonstrate a complete Snowflake-backed result. The
-next slice adds confidence intervals, formal sample-size/power requirements, and
-persisted reproducible snapshots.
+experiment is still required to demonstrate a complete Snowflake-backed result.
 
 ### Phase 4 telemetry-health gates
 
@@ -278,9 +306,9 @@ Replay batch: `7dd00d5e-abc3-4019-88ec-208851ea7884`
 
 | Verification | Current result | Command or evidence |
 | --- | --- | --- |
-| Complete Python test suite | 90 passed | `uv run pytest` |
+| Complete Python test suite | 97 passed | `uv run pytest` |
 | Phase 4 integrity regression suite | Passed; healthy data accepted and corrupt data blocked | `uv run pytest tests/test_integrity.py` |
-| Phase 4 statistical regression suite | Passed; complete, partial, sparse, and integrity-blocked paths covered | `uv run pytest tests/test_analysis.py` |
+| Phase 4 statistical regression suite | Passed; complete, partial, sparse, underpowered, unequal-allocation, and integrity-blocked paths covered | `uv run pytest tests/test_analysis.py` |
 | Live Phase 4 integrity report | Seven checks evaluated; known faulty dataset correctly blocked | `uv run guardrail-phase4-integrity-check ranking_phase3_20260806` |
 | Live Phase 4 analysis report | Integrity faults withheld statistics and returned exit status 2 | `uv run guardrail-phase4-analysis ranking_phase3_20260806` |
 | Contract compatibility tests | 32 passed | `uv run pytest tests/test_event_contracts.py` |
@@ -308,7 +336,8 @@ Replay batch: `7dd00d5e-abc3-4019-88ec-208851ea7884`
 - [x] Detect freshness skew, event loss, duplicates, and late data.
 - [x] Implement proportion and continuous metric analysis.
 - [x] Block statistical decisions when required integrity checks fail.
-- [ ] Add confidence intervals, sample-size requirements, and analysis snapshots.
+- [x] Add confidence intervals and allocation-aware sample-size requirements.
+- [ ] Persist reproducible health and analysis snapshots.
 
 ## Risks and decisions requiring attention
 
@@ -320,7 +349,7 @@ Replay batch: `7dd00d5e-abc3-4019-88ec-208851ea7884`
 | Replay execution is synchronous for the local MVP. | A long-running provider failure holds the request open. | Move replay execution behind an asynchronous job while retaining the same deterministic replay ID and status model. | Deferred hardening |
 | Full JSON Schema validation currently runs during contract development and CI, while ingestion uses Pydantic envelope checks or Snowflake required-field checks. | An event-specific type violation can reach quarantine logic without the complete schema explanation. | Integrate the versioned schema catalog into ingestion validation while preserving arbitrary raw payloads. | Deferred ingestion hardening |
 | Five join/window-heavy Dynamic Tables currently select Snowflake `FULL` refresh under `AUTO`; three simpler facts use `INCREMENTAL`. | Full refresh cost will grow with event history. | Profile refresh history and refactor unsupported operators or split models before scaling data volume. | Accepted for the current synthetic scale |
-| The Phase 3 acceptance treatment arm has only nine eligible users. | The apparent conversion lift is statistically unreliable. | Integrity gating and sparse-cell checks now block interpretation; add formal power and interval requirements before rollout recommendations. | Intentionally blocked from interpretation |
+| The Phase 3 acceptance treatment arm has only nine eligible users. | The apparent conversion lift is statistically unreliable. | Integrity, sparse-cell, interval, and 80%-power gates now block interpretation until enough valid treatment evidence exists. | Intentionally blocked from interpretation |
 
 ## Phase 3 exit gate
 

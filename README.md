@@ -6,7 +6,7 @@
 **Primary focus:** Data engineering, product infrastructure, experimentation, and reliable event processing
 **Reference domain:** A simulated food-delivery marketplace
 
-**Progress:** 34 of 50 delivery items complete (68%) — see the
+**Progress:** 35 of 50 delivery items complete (70%) — see the
 [project progress tracker](docs/PROJECT_PROGRESS.md) for shipped evidence, active
 work, risks, and the next milestone.
 
@@ -73,9 +73,13 @@ The first vertical slice is runnable locally and includes:
   conversion and Welch's unequal-variance t-test for delivery time
 - Treatment-minus-control absolute and relative lift, sparse-data safeguards, a
   Snowflake evidence repository, an executable analysis command, and a results API
+- Two-sided 95% confidence intervals plus allocation-aware normal-approximation
+  80%-power planning for five-percentage-point conversion and five-minute effects
+- Explicit per-variant sample requirements, estimated power, and an `UNDERPOWERED`
+  decision gate that preserves descriptive results without permitting a rollout decision
 
-Confidence intervals, formal sample-size and power requirements, reproducible analysis
-snapshots, rollout automation, and the control UI remain planned in the phases below.
+Reproducible analysis snapshots, rollout automation, and the control UI remain planned
+in the phases below.
 
 ---
 
@@ -467,14 +471,14 @@ Each check emits a structured result with severity, observed value, expected ran
 
 ## Statistical analysis
 
-The initial analysis engine intentionally stays focused. The first three capabilities
-are implemented; the remaining guardrails are the next Phase 4 and Phase 5 slices:
+The initial analysis engine intentionally stays focused. The first five capabilities
+are implemented; the remaining guardrails are Phase 5 work:
 
 - Difference in proportions for conversion-style metrics — **implemented**
 - Welch's t-test for continuous metrics — **implemented**
 - Absolute and relative lift — **implemented**
-- Confidence intervals
-- Minimum sample size and power calculation
+- Confidence intervals — **implemented**
+- Minimum sample size and power calculation — **implemented**
 - Practical-significance thresholds
 - Multiple-metric guardrail evaluation
 
@@ -669,7 +673,7 @@ The estimated timeline is **6–8 weeks part-time**. Each phase ends with a demo
 - [x] Detect variant flicker and assignment/exposure inconsistencies.
 - [x] Detect freshness skew, event loss, duplicates, and late data.
 - [x] Implement proportion and continuous metric analysis.
-- [ ] Calculate confidence intervals and required sample size.
+- [x] Calculate confidence intervals and required sample size.
 - [x] Block statistical decisions when required checks fail.
 - [ ] Persist reproducible analysis snapshots.
 
@@ -959,7 +963,11 @@ The analysis command first runs the same seven integrity checks. If any required
 fails or is inconclusive, it returns `BLOCKED`, omits metric statistics, and exits with
 status 2. A healthy experiment continues to a two-sided pooled two-proportion z-test
 for conversion and a two-sided Welch test for delivery minutes, returning
-treatment-minus-control estimates, lift, uncertainty, test statistics, and p-values.
+treatment-minus-control estimates, lift, 95% confidence intervals, test statistics,
+and p-values. Each metric also reports its minimum detectable effect, 80% target power,
+estimated power, and allocation-aware control/treatment sample requirement under the
+documented normal approximation. A valid but underpowered result remains visible with
+status `UNDERPOWERED` and still blocks a statistical decision.
 
 ### Setup required from the project owner
 

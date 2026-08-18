@@ -58,20 +58,20 @@ class HealthyIntegrityRepository:
         return ExperimentIntegrityEvidence(
             experiment_id=experiment_id,
             allocation_version=allocation_version,
-            control_assignments=950,
-            treatment_assignments=50,
-            control_exposed_users=950,
-            treatment_exposed_users=50,
-            total_exposures=1_000,
+            control_assignments=19_000,
+            treatment_assignments=1_000,
+            control_exposed_users=19_000,
+            treatment_exposed_users=1_000,
+            total_exposures=20_000,
             variant_flicker_users=0,
             assignment_variant_flicker_users=0,
             orphan_exposures=0,
             variant_mismatch_exposures=0,
             assignments_without_exposure=0,
-            raw_event_deliveries=1_000,
+            raw_event_deliveries=20_000,
             duplicate_event_deliveries=0,
-            control_canonical_events=950,
-            treatment_canonical_events=50,
+            control_canonical_events=19_000,
+            treatment_canonical_events=1_000,
             control_late_events=0,
             treatment_late_events=0,
             control_p95_receive_lag_seconds=2.0,
@@ -93,14 +93,14 @@ class HealthyAnalysisRepository:
         return ExperimentAnalysisEvidence(
             experiment_id=experiment_id,
             allocation_version=allocation_version,
-            control_exposed_users=950,
-            control_converted_users=380,
-            treatment_exposed_users=50,
-            treatment_converted_users=25,
-            control_delivery_observations=200,
+            control_exposed_users=19_000,
+            control_converted_users=7_600,
+            treatment_exposed_users=1_000,
+            treatment_converted_users=500,
+            control_delivery_observations=400,
             control_delivery_mean=35.0,
             control_delivery_variance=25.0,
-            treatment_delivery_observations=12,
+            treatment_delivery_observations=30,
             treatment_delivery_mean=32.0,
             treatment_delivery_variance=36.0,
         )
@@ -217,6 +217,8 @@ def test_experiment_results_endpoint_returns_integrity_gated_statistics() -> Non
         "order_conversion_rate",
         "average_delivery_minutes",
     ]
+    assert all(metric["sample_size_satisfied"] is True for metric in result["metrics"])
+    assert all(metric["confidence_interval_lower"] is not None for metric in result["metrics"])
 
 
 def test_experiment_results_endpoint_masks_analysis_provider_failure() -> None:

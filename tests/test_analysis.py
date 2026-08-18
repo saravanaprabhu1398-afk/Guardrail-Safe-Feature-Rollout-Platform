@@ -17,7 +17,11 @@ from guardrail.domain.analysis import (
 )
 from guardrail.domain.integrity import ExperimentIntegrityEvidence
 from guardrail.infrastructure.analysis import SnowflakeAnalysisRepository
-from guardrail.services.analysis import ExperimentAnalysisService, StatisticalAnalyzer
+from guardrail.services.analysis import (
+    AnalysisPolicy,
+    ExperimentAnalysisService,
+    StatisticalAnalyzer,
+)
 from guardrail.services.integrity import IntegrityService
 
 
@@ -25,10 +29,10 @@ def analysis_evidence(**overrides: object) -> ExperimentAnalysisEvidence:
     values: dict[str, object] = {
         "experiment_id": "ranking_test",
         "allocation_version": 1,
-        "control_exposed_users": 500,
-        "control_converted_users": 200,
-        "treatment_exposed_users": 500,
-        "treatment_converted_users": 230,
+        "control_exposed_users": 2_000,
+        "control_converted_users": 800,
+        "treatment_exposed_users": 2_000,
+        "treatment_converted_users": 920,
         "control_delivery_observations": 100,
         "control_delivery_mean": 35.0,
         "control_delivery_variance": 25.0,
@@ -44,11 +48,11 @@ def integrity_evidence(**overrides: object) -> ExperimentIntegrityEvidence:
     values: dict[str, object] = {
         "experiment_id": "ranking_test",
         "allocation_version": 1,
-        "control_assignments": 500,
-        "treatment_assignments": 500,
-        "control_exposed_users": 500,
-        "treatment_exposed_users": 500,
-        "total_exposures": 1_000,
+        "control_assignments": 2_000,
+        "treatment_assignments": 2_000,
+        "control_exposed_users": 2_000,
+        "treatment_exposed_users": 2_000,
+        "total_exposures": 4_000,
         "variant_flicker_users": 0,
         "assignment_variant_flicker_users": 0,
         "orphan_exposures": 0,
@@ -69,8 +73,8 @@ def integrity_evidence(**overrides: object) -> ExperimentIntegrityEvidence:
 
 def test_proportion_analysis_calculates_treatment_minus_control_lift() -> None:
     result = StatisticalAnalyzer().analyze(analysis_evidence())[0]
-    pooled_rate = 430 / 1_000
-    expected_se = sqrt(pooled_rate * (1 - pooled_rate) * (1 / 500 + 1 / 500))
+    pooled_rate = 1_720 / 4_000
+    expected_se = sqrt(pooled_rate * (1 - pooled_rate) * (1 / 2_000 + 1 / 2_000))
 
     assert result.status == MetricAnalysisStatus.COMPLETE
     assert result.statistical_test == StatisticalTest.TWO_PROPORTION_Z
@@ -81,6 +85,18 @@ def test_proportion_analysis_calculates_treatment_minus_control_lift() -> None:
     assert result.standard_error == pytest.approx(expected_se)
     assert result.test_statistic == pytest.approx(0.06 / expected_se)
     assert result.p_value is not None and 0 < result.p_value < 1
+    assert result.confidence_level == 0.95
+    assert result.confidence_interval_lower is not None
+    assert result.confidence_interval_upper is not None
+    assert (
+        result.confidence_interval_lower < result.absolute_lift < result.confidence_interval_upper
+    )
+    assert result.minimum_detectable_effect == 0.05
+    assert result.target_power == 0.8
+    assert result.estimated_power is not None and result.estimated_power >= 0.8
+    assert result.required_control_sample_size == 1_531
+    assert result.required_treatment_sample_size == 1_531
+    assert result.sample_size_satisfied is True
 
 
 def test_proportion_analysis_rejects_sparse_binary_cells() -> None:
@@ -95,6 +111,42 @@ def test_proportion_analysis_rejects_sparse_binary_cells() -> None:
 
     assert result.status == MetricAnalysisStatus.INSUFFICIENT_DATA
     assert result.p_value is None
+    assert result.confidence_interval_lower is not None
+    assert result.confidence_interval_upper is not None
+    assert result.required_control_sample_size is not None
+    assert result.required_treatment_sample_size is not None
+    assert result.sample_size_satisfied is False
+
+
+def test_proportion_analysis_marks_valid_but_underpowered_results() -> None:
+    result = StatisticalAnalyzer().analyze(
+        analysis_evidence(
+            control_exposed_users=500,
+            control_converted_users=200,
+            treatment_exposed_users=500,
+            treatment_converted_users=230,
+        )
+    )[0]
+
+    assert result.status == MetricAnalysisStatus.UNDERPOWERED
+    assert result.p_value is not None
+    assert result.confidence_interval_lower is not None
+    assert result.estimated_power == pytest.approx(0.3601008805920538)
+    assert result.sample_size_satisfied is False
+
+
+def test_sample_size_plan_accounts_for_unequal_allocation() -> None:
+    analyzer = StatisticalAnalyzer()
+
+    balanced = analyzer.analyze(analysis_evidence(), expected_treatment_percentage=50)[0]
+    five_percent = analyzer.analyze(analysis_evidence(), expected_treatment_percentage=5)[0]
+
+    assert five_percent.required_control_sample_size is not None
+    assert balanced.required_control_sample_size is not None
+    assert five_percent.required_treatment_sample_size is not None
+    assert balanced.required_treatment_sample_size is not None
+    assert five_percent.required_control_sample_size > balanced.required_control_sample_size
+    assert five_percent.required_treatment_sample_size < balanced.required_treatment_sample_size
 
 
 def test_welch_analysis_uses_unequal_variance_standard_error() -> None:
@@ -109,6 +161,14 @@ def test_welch_analysis_uses_unequal_variance_standard_error() -> None:
     assert result.test_statistic == pytest.approx(-3 / expected_se)
     assert result.degrees_of_freedom is not None and result.degrees_of_freedom > 100
     assert result.p_value is not None and result.p_value < 0.001
+    assert result.confidence_interval_lower is not None
+    assert result.confidence_interval_upper is not None
+    assert (
+        result.confidence_interval_lower < result.absolute_lift < result.confidence_interval_upper
+    )
+    assert result.minimum_detectable_effect == 5.0
+    assert result.estimated_power is not None and result.estimated_power > 0.99
+    assert result.sample_size_satisfied is True
 
 
 def test_welch_analysis_rejects_zero_variance() -> None:
@@ -130,6 +190,22 @@ def test_analysis_evidence_rejects_impossible_summaries() -> None:
 
     with pytest.raises(ValidationError, match="variance cannot be negative"):
         analysis_evidence(control_delivery_variance=-1)
+
+
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        ({"confidence_level": 0.5}, "confidence level"),
+        ({"target_power": 0.5}, "target power"),
+        ({"conversion_minimum_detectable_effect": 1.0}, "Conversion minimum"),
+        ({"delivery_minimum_detectable_effect": 0.0}, "Delivery minimum"),
+    ],
+)
+def test_analysis_policy_rejects_invalid_uncertainty_settings(
+    override: dict[str, float], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        AnalysisPolicy(**override)  # type: ignore[arg-type]
 
 
 class StaticIntegrityRepository:
@@ -201,6 +277,29 @@ def test_incomplete_metric_evidence_blocks_a_complete_analysis_result() -> None:
     assert report.metrics[1].status == MetricAnalysisStatus.COMPLETE
 
 
+def test_underpowered_metrics_block_a_statistical_decision() -> None:
+    analysis_repository = RecordingAnalysisRepository(
+        analysis_evidence(
+            control_exposed_users=500,
+            control_converted_users=200,
+            treatment_exposed_users=500,
+            treatment_converted_users=230,
+            control_delivery_observations=5,
+            treatment_delivery_observations=5,
+        )
+    )
+    service = ExperimentAnalysisService(
+        IntegrityService(StaticIntegrityRepository(integrity_evidence())),
+        analysis_repository,
+    )
+
+    report = service.get_results("ranking_test", 1, 50)
+
+    assert report.status == ExperimentAnalysisStatus.UNDERPOWERED
+    assert report.analysis_blocked is True
+    assert all(metric.status == MetricAnalysisStatus.UNDERPOWERED for metric in report.metrics)
+
+
 class FakeCursor:
     def __init__(self, row: tuple[int | float | None, ...], captured: dict[str, Any]) -> None:
         self._row = row
@@ -236,7 +335,7 @@ def test_snowflake_repository_maps_analysis_evidence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     captured: dict[str, Any] = {}
-    row = (500, 200, 500, 230, 100, 35.0, 25.0, 110, 32.0, 36.0)
+    row = (2_000, 800, 2_000, 920, 100, 35.0, 25.0, 110, 32.0, 36.0)
 
     @contextmanager
     def fake_connect(settings: SnowflakeSettings):
