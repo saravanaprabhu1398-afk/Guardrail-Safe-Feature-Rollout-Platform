@@ -13,6 +13,11 @@ from guardrail.domain.ingestion import (
     EventPublisher,
     EventPublishingError,
 )
+from guardrail.domain.integrity import (
+    ExperimentHealthReport,
+    IntegrityEvidenceError,
+    IntegrityEvidenceRepository,
+)
 from guardrail.domain.replay import (
     InvalidReplayPayloadError,
     RejectedEvent,
@@ -28,10 +33,12 @@ from guardrail.domain.transport import (
     EventDispatchError,
     EventDispatchReceipt,
 )
+from guardrail.infrastructure.integrity import SnowflakeIntegrityRepository
 from guardrail.infrastructure.redpanda import RedpandaEventDispatcher
 from guardrail.infrastructure.replay import SnowflakeReplayRepository
 from guardrail.infrastructure.streaming import SnowpipeEventPublisher
 from guardrail.services.assignment import AssignmentService
+from guardrail.services.integrity import IntegrityService
 from guardrail.services.replay import ReplayService
 from guardrail.services.simulator import DEFAULT_SIMULATION_START, MarketplaceSimulator
 from guardrail.services.store import (
@@ -48,6 +55,7 @@ def create_app(
     event_publisher: EventPublisher | None = None,
     replay_workflow: ReplayWorkflow | None = None,
     event_dispatcher: EventDispatcher | None = None,
+    integrity_repository: IntegrityEvidenceRepository | None = None,
 ) -> FastAPI:
     experiment_store = store or InMemoryExperimentStore()
     assignment_service = AssignmentService(experiment_store)
@@ -55,6 +63,8 @@ def create_app(
     publisher = event_publisher
     replay_service = replay_workflow
     dispatcher = event_dispatcher
+    evidence_repository = integrity_repository
+    integrity_service: IntegrityService | None = None
     snowflake_settings: SnowflakeSettings | None = None
     transport_settings: TransportSettings | None = None
 
@@ -94,6 +104,14 @@ def create_app(
                 get_event_publisher(),
             )
         return replay_service
+
+    def get_integrity_service() -> IntegrityService:
+        nonlocal evidence_repository, integrity_service
+        if integrity_service is None:
+            if evidence_repository is None:
+                evidence_repository = SnowflakeIntegrityRepository(get_snowflake_settings())
+            integrity_service = IntegrityService(evidence_repository)
+        return integrity_service
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -141,6 +159,30 @@ def create_app(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Experiment '{experiment_id}' was not found.",
+            ) from exc
+
+    @application.get(
+        "/experiments/{experiment_id}/health",
+        response_model=ExperimentHealthReport,
+        tags=["experiments"],
+    )
+    def get_experiment_health(experiment_id: str) -> ExperimentHealthReport:
+        try:
+            experiment = experiment_store.get_experiment(experiment_id)
+            return get_integrity_service().get_health(
+                experiment.experiment_id,
+                experiment.allocation_version,
+                experiment.treatment_percentage,
+            )
+        except ExperimentNotFoundError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Experiment '{experiment_id}' was not found.",
+            ) from exc
+        except IntegrityEvidenceError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Experiment integrity evidence is temporarily unavailable.",
             ) from exc
 
     @application.post(

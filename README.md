@@ -2,11 +2,11 @@
 
 > A Snowflake-powered experimentation and progressive-delivery platform for making safer product-launch decisions.
 
-**Project status:** Phases 0–3 complete; Phase 4 integrity and statistics is next
+**Project status:** Phases 0–3 complete; Phase 4 integrity and statistics is underway
 **Primary focus:** Data engineering, product infrastructure, experimentation, and reliable event processing
 **Reference domain:** A simulated food-delivery marketplace
 
-**Progress:** 29 of 50 delivery items complete (58%) — see the
+**Progress:** 31 of 50 delivery items complete (62%) — see the
 [project progress tracker](docs/PROJECT_PROGRESS.md) for shipped evidence, active
 work, risks, and the next milestone.
 
@@ -63,9 +63,13 @@ The first vertical slice is runnable locally and includes:
 - User-level experiment facts and control/treatment KPI aggregations
 - Eight five-minute Snowflake Dynamic Tables plus source freshness monitoring
 - Seventy-four dbt data tests and a repeatable live Phase 3 acceptance command
+- A typed integrity engine with sample-ratio mismatch, variant-flicker, and
+  assignment/exposure consistency gates
+- A version-scoped Snowflake evidence query, executable integrity command, and
+  implemented experiment-health API
 
-Integrity enforcement, statistical inference, rollout automation, and the control UI
-remain planned in the phases below.
+Freshness and event-loss integrity checks, statistical inference, rollout automation,
+and the control UI remain planned in the phases below.
 
 ---
 
@@ -520,7 +524,7 @@ Automated recommendations remain explainable. Human approval can be required for
 | `GET` | `/rejections/{rejection_id}` | Inspect a quarantined event and its replay status. **Implemented.** |
 | `POST` | `/rejections/{rejection_id}/replay` | Validate and replay a corrected event with lineage. **Implemented.** |
 | `POST` | `/simulations/{simulation_id}/failures` | Inject a selected data failure. |
-| `GET` | `/experiments/{experiment_id}/health` | Return integrity and freshness results. |
+| `GET` | `/experiments/{experiment_id}/health` | Return blocking allocation and consistency results. **Implemented.** |
 | `GET` | `/experiments/{experiment_id}/results` | Return metric and statistical results. |
 | `GET` | `/experiments/{experiment_id}/decisions` | Return rollout decision history. |
 | `POST` | `/experiments/{experiment_id}/transitions` | Approve or apply an allowed transition. |
@@ -654,8 +658,8 @@ The estimated timeline is **6–8 weeks part-time**. Each phase ends with a demo
 
 **Duration:** 1 week
 
-- [ ] Implement sample ratio mismatch detection.
-- [ ] Detect variant flicker and assignment/exposure inconsistencies.
+- [x] Implement sample ratio mismatch detection.
+- [x] Detect variant flicker and assignment/exposure inconsistencies.
 - [ ] Detect freshness skew, event loss, duplicates, and late data.
 - [ ] Implement proportion and continuous metric analysis.
 - [ ] Calculate confidence intervals and required sample size.
@@ -926,6 +930,7 @@ uv run guardrail-dbt debug
 uv run guardrail-dbt build
 uv run guardrail-dbt source freshness
 uv run guardrail-phase3-smoke
+uv run guardrail-phase4-integrity-check ranking_phase3_20260806
 ```
 
 The build creates one `CLEAN` staging view, six `CORE` Dynamic Tables, and two
@@ -933,6 +938,14 @@ The build creates one `CLEAN` staging view, six `CORE` Dynamic Tables, and two
 requires at least one persisted experiment journey and verifies non-empty facts,
 all eight materializations, and the critical analytical invariants. Detailed model
 lineage and grains are documented in the [dbt project guide](dbt_guardrail/README.md).
+
+The Phase 4 command evaluates eligible exposed-user allocation against the configured
+5% treatment split, requires at least five expected users in each variant, and checks
+variant and assignment/exposure consistency. It prints structured evidence and exits
+with status 2 whenever a check fails or lacks enough data, preventing a downstream
+statistical decision from treating an unhealthy experiment as valid. Use
+`--treatment-percentage` and `--allocation-version` when evaluating another rollout
+configuration.
 
 ### Setup required from the project owner
 

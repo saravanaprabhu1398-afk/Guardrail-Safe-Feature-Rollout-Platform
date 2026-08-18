@@ -31,6 +31,7 @@ dev = [
 [project.scripts]
 guardrail-api = "guardrail.main:run"
 guardrail-dbt = "guardrail.infrastructure.dbt:run"
+guardrail-phase4-integrity-check = "guardrail.infrastructure.integrity:run_phase4_integrity_check"
 guardrail-phase3-smoke = "guardrail.infrastructure.analytics:run_phase3_smoke"
 guardrail-snowflake-check = "guardrail.infrastructure.snowflake:run_check"
 guardrail-snowflake-setup-ingestion = "guardrail.infrastructure.bootstrap:run_ingestion_setup"

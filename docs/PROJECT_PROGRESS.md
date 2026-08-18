@@ -1,8 +1,8 @@
 # Guardrail Project Progress Tracker
 
-**Last updated:** 2026-08-06
-**Overall completion:** 29 of 50 planned delivery items (58%)
-**Current focus:** Phase 4 experiment integrity and statistical analysis
+**Last updated:** 2026-08-18
+**Overall completion:** 31 of 50 planned delivery items (62%)
+**Current focus:** Phase 4 telemetry health and statistical analysis
 **Delivery status:** On track; no active implementation blocker
 
 This tracker records delivered outcomes, verification evidence, remaining scope,
@@ -17,12 +17,48 @@ and risks. The detailed product and architecture specification remains in the
 | 1 — Simulator and assignment | **Complete** | 7/7 | 100% | Local API, simulator, and acknowledged Redpanda transport pass. | Preserve the transport acceptance as a regression gate. |
 | 2 — Snowflake ingestion and raw layer | **Complete** | 8/8 | 100% | The complete ingestion, quarantine, replay, and reconciliation loop is live. | Preserve the acceptance evidence as a regression test. |
 | 3 — Experiment models and metrics | **Complete** | 7/7 | 100% | Live dbt build, freshness, and analytical smoke gates pass. | Preserve the Phase 3 acceptance as a regression gate. |
-| 4 — Integrity and statistics | Ready to start | 0/7 | 0% | Trusted Phase 3 facts and quality signals are live. | Implement sample-ratio mismatch and flicker checks. |
+| 4 — Integrity and statistics | **In progress** | 2/7 | 29% | Allocation and consistency problems now block analysis. | Add freshness, event-loss, duplicate, and late-data checks. |
 | 5 — Metrics and rollout automation | Not started | 0/7 | 0% | — | Depends on integrity and analysis results. |
 | 6 — UI and portfolio packaging | Not started | 0/7 | 0% | — | Depends on the end-to-end decision loop. |
-| **Total** | **In progress** | **29/50** | **58%** | Phase 0 through Phase 3 exit gates passed. | Begin Phase 4 integrity checks. |
+| **Total** | **In progress** | **31/50** | **62%** | Phase 4 integrity gating is underway. | Complete telemetry-health checks. |
 
 ## Latest shipped milestone
+
+### Phase 4 allocation and consistency integrity gates
+
+Delivered on 2026-08-18:
+
+- [x] Added typed, version-scoped integrity evidence and structured check results.
+- [x] Implemented Pearson sample-ratio mismatch detection against the configured
+  control/treatment allocation, using eligible exposed users as the analysis sample.
+- [x] Required at least five expected users per allocation cell and blocked analysis
+  with `INSUFFICIENT_DATA` instead of applying the chi-square approximation outside
+  its configured validity gate.
+- [x] Added blocking checks for exposure variant flicker, assignment variant flicker,
+  orphan exposures, assignment/variant mismatches, and excessive assignment/exposure
+  gaps.
+- [x] Added a Snowflake evidence repository scoped by experiment and allocation
+  version, including time-bounded attribution of orphan exposures.
+- [x] Implemented `GET /experiments/{experiment_id}/health` and an executable
+  `guardrail-phase4-integrity-check` command with a nonzero blocked-result exit code.
+- [x] Added healthy, insufficient-data, and deliberately corrupted regression cases.
+
+Local integrity acceptance evidence:
+
+| Check | Observed | Result |
+| --- | ---: | --- |
+| Healthy configured 95/5 exposure split | 950 / 50 | Pass |
+| Deliberate sample-ratio mismatch | 850 / 150 | Correctly blocked |
+| Expected treatment cell below five users | 1 | Correctly blocked as insufficient |
+| Variant-flicker fault | 2 users | Correctly blocked |
+| Orphan, variant-mismatch, and assignment-flicker faults | 1 each | Correctly blocked |
+| Assignment/exposure gap above 5% | 5.1% | Correctly blocked |
+
+Live Snowflake execution was attempted on 2026-08-18 but the account rejected the PAT
+connection because its required network policy is not currently satisfied. Once access
+is restored, the previous Phase 3 dataset is expected to block because it intentionally
+contains three flicker users and only nine eligible treatment users; a new healthy and
+deliberately faulty Phase 4 acceptance dataset must then be persisted.
 
 ### Phase 3 experiment measurement layer
 
@@ -179,7 +215,8 @@ Replay batch: `7dd00d5e-abc3-4019-88ec-208851ea7884`
 
 | Verification | Current result | Command or evidence |
 | --- | --- | --- |
-| Complete Python test suite | 61 passed | `uv run pytest` |
+| Complete Python test suite | 75 passed | `uv run pytest` |
+| Phase 4 integrity regression suite | Passed; healthy data accepted and corrupt data blocked | `uv run pytest tests/test_integrity.py` |
 | Contract compatibility tests | 32 passed | `uv run pytest tests/test_event_contracts.py` |
 | Python lint | Passed | `uv run ruff check .` |
 | Python formatting | Passed | `uv run ruff format --check .` |
@@ -200,8 +237,8 @@ Replay batch: `7dd00d5e-abc3-4019-88ec-208851ea7884`
 
 ### Now — Phase 4 integrity checkpoint
 
-- [ ] Implement sample-ratio mismatch detection.
-- [ ] Detect variant flicker and assignment/exposure inconsistencies.
+- [x] Implement sample-ratio mismatch detection.
+- [x] Detect variant flicker and assignment/exposure inconsistencies.
 - [ ] Detect freshness skew, event loss, duplicates, and late data.
 - [ ] Implement proportion and continuous metric analysis.
 - [ ] Add confidence intervals, sample-size requirements, and analysis snapshots.
@@ -210,7 +247,7 @@ Replay batch: `7dd00d5e-abc3-4019-88ec-208851ea7884`
 
 | Risk or debt | Impact | Mitigation | Status |
 | --- | --- | --- | --- |
-| PAT currently uses a temporary network-policy bypass. | The development credential is less restricted than the target posture. | Create a permanent allowlisted network policy, validate access, then remove the bypass. | Owner action before production |
+| Snowflake currently rejects the development PAT because its required network policy is not satisfied. | Live Phase 4 validation cannot run from this environment. | Create a permanent allowlisted network policy and re-run the identity and Phase 4 integrity checks. | Owner action blocks live validation |
 | Local Redpanda runs as one development broker. | It does not demonstrate production availability or replication. | Keep single-node Compose for reproducibility; document a replicated/managed deployment topology before production. | Accepted for local development |
 | Batch classification runs synchronously in the sink worker after stream commit. | A slow warehouse batch occupies a consumer and can increase source lag. | Keep processing idempotent and offset-safe; later move classification to an observable Snowflake task graph. | Accepted in ADR 0004 |
 | Local development uses one deterministic streaming channel. | Multiple producer instances could contend for offsets. | Derive channel names from environment, producer instance, and source partition. | Required before scaling |

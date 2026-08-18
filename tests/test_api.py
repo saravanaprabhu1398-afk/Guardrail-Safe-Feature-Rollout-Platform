@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from fastapi.testclient import TestClient
 
 from guardrail.domain.ingestion import EventPublishingError, IngestionReceipt
+from guardrail.domain.integrity import ExperimentIntegrityEvidence, IntegrityEvidenceError
 from guardrail.domain.replay import (
     RejectedEvent,
     ReplayReceipt,
@@ -47,6 +48,33 @@ class RecordingPublisher:
 class FailingPublisher:
     def publish(self, events: list[object]) -> IngestionReceipt:
         raise EventPublishingError("provider detail that must not reach the client")
+
+
+class HealthyIntegrityRepository:
+    def get_evidence(
+        self, experiment_id: str, allocation_version: int
+    ) -> ExperimentIntegrityEvidence:
+        return ExperimentIntegrityEvidence(
+            experiment_id=experiment_id,
+            allocation_version=allocation_version,
+            control_assignments=950,
+            treatment_assignments=50,
+            control_exposed_users=950,
+            treatment_exposed_users=50,
+            total_exposures=1_000,
+            variant_flicker_users=0,
+            assignment_variant_flicker_users=0,
+            orphan_exposures=0,
+            variant_mismatch_exposures=0,
+            assignments_without_exposure=0,
+        )
+
+
+class FailingIntegrityRepository:
+    def get_evidence(
+        self, experiment_id: str, allocation_version: int
+    ) -> ExperimentIntegrityEvidence:
+        raise IntegrityEvidenceError("provider details")
 
 
 class RecordingReplayWorkflow:
@@ -103,6 +131,32 @@ def test_duplicate_experiment_returns_conflict() -> None:
         duplicate = client.post("/experiments", json=EXPERIMENT)
 
         assert duplicate.status_code == 409
+
+
+def test_experiment_health_endpoint_returns_integrity_results() -> None:
+    with TestClient(create_app(integrity_repository=HealthyIntegrityRepository())) as client:
+        client.post("/experiments", json=EXPERIMENT)
+        response = client.get("/experiments/new_ranking_algorithm/health")
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["analysis_blocked"] is False
+    assert [check["check_name"] for check in result["checks"]] == [
+        "sample_ratio_mismatch",
+        "variant_flicker",
+        "assignment_exposure_consistency",
+    ]
+
+
+def test_experiment_health_endpoint_masks_evidence_provider_failure() -> None:
+    with TestClient(create_app(integrity_repository=FailingIntegrityRepository())) as client:
+        client.post("/experiments", json=EXPERIMENT)
+        response = client.get("/experiments/new_ranking_algorithm/health")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "Experiment integrity evidence is temporarily unavailable."
+    }
 
 
 def test_simulation_reports_injected_faults() -> None:
