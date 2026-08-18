@@ -44,8 +44,8 @@ The on-demand integrity engine reads raw delivery identity, canonical event late
 assignment and exposure facts, and user-experiment metrics. It evaluates sample ratio,
 variant flicker, invalid exposures, event loss, duplicate delivery, late data, and
 cross-variant p95 receive-lag skew without changing the Phase 3 model grains. Health
-results are returned through the CLI and API; persisted health snapshots remain a
-later Phase 4 delivery item.
+results are returned through the CLI and API and are persisted with their exact input
+evidence and versioned integrity policy whenever an analysis is requested.
 
 Only after every blocking integrity check passes, the statistical-analysis repository
 reads version-scoped conversion counts plus delivery-time count, mean, and sample
@@ -55,8 +55,10 @@ blocked health report short-circuits the warehouse metric query, so invalid tele
 cannot produce an interpretable statistical result. The metric results include 95%
 confidence intervals and allocation-aware normal-approximation sample requirements
 targeting 80% power for configured minimum detectable effects. Underpowered results
-remain observable but cannot authorize a decision. Persisted analysis snapshots remain
-the final Phase 4 delivery item.
+remain observable but cannot authorize a decision. Persisted analysis snapshots are
+linked to the health snapshot in `CONTROL.EXPERIMENT_ANALYSIS_SNAPSHOTS`. Stable
+content-addressed IDs make identical retries idempotent while changed evidence or
+policy creates a new immutable record.
 
 ## Run
 
@@ -69,6 +71,7 @@ uv run guardrail-dbt debug
 uv run guardrail-dbt build
 uv run guardrail-dbt source freshness
 uv run guardrail-phase3-smoke
+uv run guardrail-snowflake-setup-analysis
 uv run guardrail-phase4-analysis ranking_phase3_20260806
 ```
 

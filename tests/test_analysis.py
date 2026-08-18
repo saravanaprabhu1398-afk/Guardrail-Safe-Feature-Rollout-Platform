@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from math import sqrt
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,9 @@ from pydantic import ValidationError
 
 from guardrail.config import SnowflakeSettings
 from guardrail.domain.analysis import (
+    AnalysisSnapshotRecord,
     ExperimentAnalysisEvidence,
+    ExperimentAnalysisSnapshotPayload,
     ExperimentAnalysisStatus,
     MetricAnalysisStatus,
     StatisticalTest,
@@ -230,11 +233,26 @@ class RecordingAnalysisRepository:
         return self._evidence
 
 
+class RecordingSnapshotRepository:
+    def __init__(self) -> None:
+        self.payloads: list[ExperimentAnalysisSnapshotPayload] = []
+
+    def persist(self, payload: ExperimentAnalysisSnapshotPayload) -> AnalysisSnapshotRecord:
+        self.payloads.append(payload)
+        return AnalysisSnapshotRecord(
+            health_snapshot_id="health_test",
+            analysis_snapshot_id="analysis_test",
+            created_at=datetime(2026, 8, 18, tzinfo=UTC),
+        )
+
+
 def test_integrity_failure_prevents_statistical_evidence_query() -> None:
     analysis_repository = RecordingAnalysisRepository(analysis_evidence())
+    snapshot_repository = RecordingSnapshotRepository()
     service = ExperimentAnalysisService(
         IntegrityService(StaticIntegrityRepository(integrity_evidence(variant_flicker_users=1))),
         analysis_repository,
+        snapshot_repository=snapshot_repository,
     )
 
     report = service.get_results("ranking_test", 1, 50)
@@ -243,13 +261,21 @@ def test_integrity_failure_prevents_statistical_evidence_query() -> None:
     assert report.analysis_blocked is True
     assert report.metrics == ()
     assert analysis_repository.called is False
+    assert report.health_snapshot_id == "health_test"
+    assert report.analysis_snapshot_id == "analysis_test"
+    assert snapshot_repository.payloads[0].analysis_evidence is None
+    assert (
+        snapshot_repository.payloads[0].analysis_report.status == ExperimentAnalysisStatus.BLOCKED
+    )
 
 
 def test_healthy_integrity_allows_complete_statistical_analysis() -> None:
     analysis_repository = RecordingAnalysisRepository(analysis_evidence())
+    snapshot_repository = RecordingSnapshotRepository()
     service = ExperimentAnalysisService(
         IntegrityService(StaticIntegrityRepository(integrity_evidence())),
         analysis_repository,
+        snapshot_repository=snapshot_repository,
     )
 
     report = service.get_results("ranking_test", 1, 50)
@@ -258,6 +284,12 @@ def test_healthy_integrity_allows_complete_statistical_analysis() -> None:
     assert report.analysis_blocked is False
     assert len(report.metrics) == 2
     assert analysis_repository.called is True
+    assert report.snapshot_created_at == datetime(2026, 8, 18, tzinfo=UTC)
+    snapshot = snapshot_repository.payloads[0]
+    assert snapshot.analysis_evidence == analysis_evidence()
+    assert snapshot.integrity_policy_version == "phase4-integrity-v1"
+    assert snapshot.analysis_policy_version == "phase4-analysis-v1"
+    assert snapshot.analysis_policy["target_power"] == 0.8
 
 
 def test_incomplete_metric_evidence_blocks_a_complete_analysis_result() -> None:

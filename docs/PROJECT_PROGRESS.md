@@ -1,8 +1,8 @@
 # Guardrail Project Progress Tracker
 
 **Last updated:** 2026-08-18
-**Overall completion:** 35 of 50 planned delivery items (70%)
-**Current focus:** Phase 4 reproducible analysis snapshots
+**Overall completion:** 36 of 50 planned delivery items (72%)
+**Current focus:** Phase 5 metrics-as-code and rollout automation
 **Delivery status:** On track; no active implementation blocker
 
 This tracker records delivered outcomes, verification evidence, remaining scope,
@@ -17,12 +17,50 @@ and risks. The detailed product and architecture specification remains in the
 | 1 — Simulator and assignment | **Complete** | 7/7 | 100% | Local API, simulator, and acknowledged Redpanda transport pass. | Preserve the transport acceptance as a regression gate. |
 | 2 — Snowflake ingestion and raw layer | **Complete** | 8/8 | 100% | The complete ingestion, quarantine, replay, and reconciliation loop is live. | Preserve the acceptance evidence as a regression test. |
 | 3 — Experiment models and metrics | **Complete** | 7/7 | 100% | Live dbt build, freshness, and analytical smoke gates pass. | Preserve the Phase 3 acceptance as a regression gate. |
-| 4 — Integrity and statistics | **In progress** | 6/7 | 86% | Integrity, statistical tests, confidence intervals, and power gates are live. | Persist reproducible analysis snapshots. |
-| 5 — Metrics and rollout automation | Not started | 0/7 | 0% | — | Depends on integrity and analysis results. |
+| 4 — Integrity and statistics | **Complete** | 7/7 | 100% | Corrupt and underpowered decisions are blocked and every analysis is reproducibly snapshotted. | Preserve Phase 4 acceptance as a regression gate. |
+| 5 — Metrics and rollout automation | Not started | 0/7 | 0% | Phase 4 now supplies auditable decision inputs. | Define and validate the metric YAML schema. |
 | 6 — UI and portfolio packaging | Not started | 0/7 | 0% | — | Depends on the end-to-end decision loop. |
-| **Total** | **In progress** | **35/50** | **70%** | Phase 4 now blocks both corrupt and underpowered results. | Complete reproducible analysis persistence. |
+| **Total** | **In progress** | **36/50** | **72%** | Phase 4 integrity, inference, power, and persistence are complete. | Begin Phase 5 metrics-as-code. |
 
 ## Latest shipped milestone
+
+### Phase 4 reproducible analysis snapshots
+
+Delivered on 2026-08-18:
+
+- [x] Added immutable `CONTROL.EXPERIMENT_HEALTH_SNAPSHOTS` and
+  `CONTROL.EXPERIMENT_ANALYSIS_SNAPSHOTS` tables with explicit health lineage.
+- [x] Persisted exact integrity evidence, integrity policy/version, health report,
+  statistical evidence, analysis policy/version, and analysis report as `VARIANT`.
+- [x] Derived stable health and analysis IDs from canonical JSON SHA-256 hashes, so
+  identical evidence and policy retries reuse the original immutable rows.
+- [x] Wrapped both snapshot writes in one transaction and masked provider failures at
+  the API boundary rather than returning an unpersisted decision input.
+- [x] Returned health snapshot ID, analysis snapshot ID, and original creation time
+  from both the results API and analysis CLI.
+- [x] Preserved integrity short-circuiting: blocked runs snapshot their health evidence
+  and blocked report while analysis evidence remains JSON null.
+- [x] Added setup automation plus idempotency, changed-policy, rollback, blocked,
+  healthy, DDL-contract, and API regression coverage.
+
+Live snapshot acceptance for `ranking_phase3_20260806`:
+
+| Check | Observed | Result |
+| --- | --- | --- |
+| Phase 4 DDL | 6 statements; 2 `CONTROL` tables | Pass |
+| First and second CLI runs | Same health and analysis IDs and creation time | Idempotent |
+| Persisted health rows | 1 | Pass |
+| Persisted analysis rows | 1 | Pass |
+| Stored report status | `BLOCKED` | Pass |
+| Stored analysis evidence | JSON null | Short-circuit preserved |
+| Content hashes | 64 characters each | Pass |
+
+Health snapshot: `health_d149d49d548fb31d26d1402f79107bf764c55fc4d8282b75dd60be85fcec42ec`
+
+Analysis snapshot: `analysis_60f84ec8f5eacafecc8e227b153ba9c122ce2641301d1ce502505d2dcc0c2886`
+
+Phase 4 is complete. The deterministic healthy path passes in regression fixtures;
+the deliberately faulty live experiment remains blocked and fully auditable.
 
 ### Phase 4 confidence intervals and power gates
 
@@ -306,11 +344,14 @@ Replay batch: `7dd00d5e-abc3-4019-88ec-208851ea7884`
 
 | Verification | Current result | Command or evidence |
 | --- | --- | --- |
-| Complete Python test suite | 97 passed | `uv run pytest` |
+| Complete Python test suite | 101 passed | `uv run pytest` |
 | Phase 4 integrity regression suite | Passed; healthy data accepted and corrupt data blocked | `uv run pytest tests/test_integrity.py` |
 | Phase 4 statistical regression suite | Passed; complete, partial, sparse, underpowered, unequal-allocation, and integrity-blocked paths covered | `uv run pytest tests/test_analysis.py` |
 | Live Phase 4 integrity report | Seven checks evaluated; known faulty dataset correctly blocked | `uv run guardrail-phase4-integrity-check ranking_phase3_20260806` |
 | Live Phase 4 analysis report | Integrity faults withheld statistics and returned exit status 2 | `uv run guardrail-phase4-analysis ranking_phase3_20260806` |
+| Phase 4 snapshot regression suite | Stable IDs, changed-policy lineage, rollback, and DDL contracts passed | `uv run pytest tests/test_snapshots.py` |
+| Live Phase 4 snapshot deployment | 6 statements applied; 2 tables verified | `uv run guardrail-snowflake-setup-analysis` |
+| Live Phase 4 snapshot idempotency | Two identical runs produced one health and one analysis row | `uv run guardrail-phase4-analysis ranking_phase3_20260806` twice |
 | Contract compatibility tests | 32 passed | `uv run pytest tests/test_event_contracts.py` |
 | Python lint | Passed | `uv run ruff check .` |
 | Python formatting | Passed | `uv run ruff format --check .` |
@@ -329,7 +370,7 @@ Replay batch: `7dd00d5e-abc3-4019-88ec-208851ea7884`
 
 ## Active work board
 
-### Now — Phase 4 statistical completion
+### Completed — Phase 4 integrity and statistics
 
 - [x] Implement sample-ratio mismatch detection.
 - [x] Detect variant flicker and assignment/exposure inconsistencies.
@@ -337,7 +378,13 @@ Replay batch: `7dd00d5e-abc3-4019-88ec-208851ea7884`
 - [x] Implement proportion and continuous metric analysis.
 - [x] Block statistical decisions when required integrity checks fail.
 - [x] Add confidence intervals and allocation-aware sample-size requirements.
-- [ ] Persist reproducible health and analysis snapshots.
+- [x] Persist reproducible health and analysis snapshots.
+
+### Next — Phase 5 metrics-as-code
+
+- [ ] Define the versioned metric YAML schema.
+- [ ] Validate event, entity, attribution, and guardrail references.
+- [ ] Compile validated definitions into reviewable Snowflake SQL.
 
 ## Risks and decisions requiring attention
 

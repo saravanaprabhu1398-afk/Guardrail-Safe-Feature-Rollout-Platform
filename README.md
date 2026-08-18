@@ -2,11 +2,11 @@
 
 > A Snowflake-powered experimentation and progressive-delivery platform for making safer product-launch decisions.
 
-**Project status:** Phases 0–3 complete; Phase 4 integrity and statistics is underway
+**Project status:** Phases 0–4 complete; Phase 5 metrics and rollout automation is next
 **Primary focus:** Data engineering, product infrastructure, experimentation, and reliable event processing
 **Reference domain:** A simulated food-delivery marketplace
 
-**Progress:** 35 of 50 delivery items complete (70%) — see the
+**Progress:** 36 of 50 delivery items complete (72%) — see the
 [project progress tracker](docs/PROJECT_PROGRESS.md) for shipped evidence, active
 work, risks, and the next milestone.
 
@@ -77,9 +77,11 @@ The first vertical slice is runnable locally and includes:
   80%-power planning for five-percentage-point conversion and five-minute effects
 - Explicit per-variant sample requirements, estimated power, and an `UNDERPOWERED`
   decision gate that preserves descriptive results without permitting a rollout decision
+- Immutable, content-addressed health and analysis snapshots in Snowflake `CONTROL`,
+  with exact evidence, versioned policies, reports, hashes, and health lineage
 
-Reproducible analysis snapshots, rollout automation, and the control UI remain planned
-in the phases below.
+Metrics-as-code, rollout automation, and the control UI remain planned in the phases
+below.
 
 ---
 
@@ -297,8 +299,8 @@ GUARDRAIL
 │   ├── FCT_USER_EXPERIMENT_METRICS
 │   └── AGG_EXPERIMENT_RESULTS
 ├── CONTROL
-│   ├── EXPERIMENT_HEALTH_CHECKS
-│   ├── EXPERIMENT_ANALYSES
+│   ├── EXPERIMENT_HEALTH_SNAPSHOTS
+│   ├── EXPERIMENT_ANALYSIS_SNAPSHOTS
 │   ├── ROLLOUT_DECISIONS
 │   └── STATE_TRANSITIONS
 └── OBSERVABILITY
@@ -675,7 +677,7 @@ The estimated timeline is **6–8 weeks part-time**. Each phase ends with a demo
 - [x] Implement proportion and continuous metric analysis.
 - [x] Calculate confidence intervals and required sample size.
 - [x] Block statistical decisions when required checks fail.
-- [ ] Persist reproducible analysis snapshots.
+- [x] Persist reproducible analysis snapshots.
 
 **Exit criterion:** A healthy experiment produces a result, while deliberately corrupted experiments are correctly blocked.
 
@@ -942,6 +944,7 @@ uv run guardrail-dbt build
 uv run guardrail-dbt source freshness
 uv run guardrail-phase3-smoke
 uv run guardrail-phase4-integrity-check ranking_phase3_20260806
+uv run guardrail-snowflake-setup-analysis
 uv run guardrail-phase4-analysis ranking_phase3_20260806
 ```
 
@@ -969,6 +972,15 @@ estimated power, and allocation-aware control/treatment sample requirement under
 documented normal approximation. A valid but underpowered result remains visible with
 status `UNDERPOWERED` and still blocks a statistical decision.
 
+Before the first persisted analysis, run `guardrail-snowflake-setup-analysis` once to
+create the two `CONTROL` snapshot tables. Every analysis attempt then stores its exact
+integrity evidence and policy in a health snapshot, plus its statistical evidence,
+policy, and report in a linked analysis snapshot. SHA-256 content-addressed IDs make
+identical retries idempotent; the API and CLI return both IDs and the original snapshot
+timestamp. Blocked experiments are also auditable: they store the health evidence and
+blocked report while keeping analysis evidence null because the metric query was never
+allowed to run.
+
 ### Setup required from the project owner
 
 Nothing external is required for local simulation or the Redpanda transport. Docker
@@ -985,10 +997,10 @@ The PAT secret belongs in `.secrets/snowflake_pat` with `600` permissions. Only 
 After creating the `GUARDRAIL_ENGINEER` role and a role-restricted PAT, run
 [`snowflake/bootstrap/01_platform.sql`](snowflake/bootstrap/01_platform.sql)
 once in Snowsight as `ACCOUNTADMIN`. Then run
-`uv run guardrail-snowflake-setup-ingestion` as `GUARDRAIL_ENGINEER`.
-The current development account has completed both steps. Its remaining security
-hardening item is replacing the temporary PAT network-policy bypass with a permanent,
-restricted network policy.
+`uv run guardrail-snowflake-setup-ingestion` and
+`uv run guardrail-snowflake-setup-analysis` as `GUARDRAIL_ENGINEER`.
+The current development account has completed these steps and uses a restricted PAT
+network policy.
 
 ---
 

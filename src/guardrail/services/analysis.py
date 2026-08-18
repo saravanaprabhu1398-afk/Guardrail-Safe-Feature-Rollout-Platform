@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from math import ceil, sqrt
 
 from scipy.stats import norm, t, ttest_ind_from_stats
 
 from guardrail.domain.analysis import (
     AnalysisEvidenceRepository,
+    AnalysisSnapshotRepository,
     ExperimentAnalysisEvidence,
     ExperimentAnalysisReport,
+    ExperimentAnalysisSnapshotPayload,
     ExperimentAnalysisStatus,
     MetricAnalysisResult,
     MetricAnalysisStatus,
@@ -16,7 +18,10 @@ from guardrail.domain.analysis import (
     MetricType,
     StatisticalTest,
 )
-from guardrail.services.integrity import IntegrityService
+from guardrail.domain.integrity import ExperimentHealthReport, ExperimentIntegrityEvidence
+from guardrail.services.integrity import INTEGRITY_POLICY_VERSION, IntegrityService
+
+ANALYSIS_POLICY_VERSION = "phase4-analysis-v1"
 
 
 @dataclass(frozen=True)
@@ -64,6 +69,10 @@ class StatisticalAnalyzer:
 
     def __init__(self, policy: AnalysisPolicy | None = None) -> None:
         self._policy = policy or AnalysisPolicy()
+
+    @property
+    def policy(self) -> AnalysisPolicy:
+        return self._policy
 
     def analyze(
         self,
@@ -534,10 +543,12 @@ class ExperimentAnalysisService:
         integrity_service: IntegrityService,
         repository: AnalysisEvidenceRepository,
         analyzer: StatisticalAnalyzer | None = None,
+        snapshot_repository: AnalysisSnapshotRepository | None = None,
     ) -> None:
         self._integrity_service = integrity_service
         self._repository = repository
         self._analyzer = analyzer or StatisticalAnalyzer()
+        self._snapshot_repository = snapshot_repository
 
     def get_results(
         self,
@@ -545,7 +556,7 @@ class ExperimentAnalysisService:
         allocation_version: int,
         expected_treatment_percentage: int,
     ) -> ExperimentAnalysisReport:
-        health = self._integrity_service.get_health(
+        integrity_evidence, health = self._integrity_service.get_health_with_evidence(
             experiment_id,
             allocation_version,
             expected_treatment_percentage,
@@ -554,13 +565,19 @@ class ExperimentAnalysisService:
             check.check_name for check in health.checks if check.blocks_analysis
         )
         if blocking_checks:
-            return ExperimentAnalysisReport(
+            report = ExperimentAnalysisReport(
                 experiment_id=experiment_id,
                 allocation_version=allocation_version,
                 status=ExperimentAnalysisStatus.BLOCKED,
                 analysis_blocked=True,
                 blocking_checks=blocking_checks,
                 metrics=(),
+            )
+            return self._persist_snapshot(
+                report,
+                integrity_evidence=integrity_evidence,
+                health_report=health,
+                analysis_evidence=None,
             )
 
         evidence = self._repository.get_evidence(experiment_id, allocation_version)
@@ -579,11 +596,48 @@ class ExperimentAnalysisService:
             status = ExperimentAnalysisStatus.PARTIAL
         else:
             status = ExperimentAnalysisStatus.INSUFFICIENT_DATA
-        return ExperimentAnalysisReport(
+        report = ExperimentAnalysisReport(
             experiment_id=experiment_id,
             allocation_version=allocation_version,
             status=status,
             analysis_blocked=status != ExperimentAnalysisStatus.COMPLETE,
             blocking_checks=(),
             metrics=metrics,
+        )
+        return self._persist_snapshot(
+            report,
+            integrity_evidence=integrity_evidence,
+            health_report=health,
+            analysis_evidence=evidence,
+        )
+
+    def _persist_snapshot(
+        self,
+        report: ExperimentAnalysisReport,
+        *,
+        integrity_evidence: ExperimentIntegrityEvidence,
+        health_report: ExperimentHealthReport,
+        analysis_evidence: ExperimentAnalysisEvidence | None,
+    ) -> ExperimentAnalysisReport:
+        if self._snapshot_repository is None:
+            return report
+
+        record = self._snapshot_repository.persist(
+            ExperimentAnalysisSnapshotPayload(
+                integrity_policy_version=INTEGRITY_POLICY_VERSION,
+                integrity_policy=asdict(self._integrity_service.policy),
+                integrity_evidence=integrity_evidence,
+                health_report=health_report,
+                analysis_policy_version=ANALYSIS_POLICY_VERSION,
+                analysis_policy=asdict(self._analyzer.policy),
+                analysis_evidence=analysis_evidence,
+                analysis_report=report,
+            )
+        )
+        return report.model_copy(
+            update={
+                "health_snapshot_id": record.health_snapshot_id,
+                "analysis_snapshot_id": record.analysis_snapshot_id,
+                "snapshot_created_at": record.created_at,
+            }
         )

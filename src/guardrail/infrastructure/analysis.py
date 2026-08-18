@@ -5,9 +5,14 @@ import json
 import sys
 
 from guardrail.config import SnowflakeSettings
-from guardrail.domain.analysis import AnalysisEvidenceError, ExperimentAnalysisEvidence
+from guardrail.domain.analysis import (
+    AnalysisEvidenceError,
+    AnalysisSnapshotError,
+    ExperimentAnalysisEvidence,
+)
 from guardrail.domain.integrity import IntegrityEvidenceError
 from guardrail.infrastructure.integrity import SnowflakeIntegrityRepository
+from guardrail.infrastructure.snapshots import SnowflakeAnalysisSnapshotRepository
 from guardrail.infrastructure.snowflake import connect
 from guardrail.services.analysis import ExperimentAnalysisService
 from guardrail.services.integrity import IntegrityService
@@ -120,6 +125,7 @@ def run_phase4_analysis() -> None:
     service = ExperimentAnalysisService(
         IntegrityService(SnowflakeIntegrityRepository(settings)),
         SnowflakeAnalysisRepository(settings),
+        snapshot_repository=SnowflakeAnalysisSnapshotRepository(settings),
     )
     try:
         report = service.get_results(
@@ -127,7 +133,7 @@ def run_phase4_analysis() -> None:
             arguments.allocation_version,
             arguments.treatment_percentage,
         )
-    except (IntegrityEvidenceError, AnalysisEvidenceError) as exc:
+    except (IntegrityEvidenceError, AnalysisEvidenceError, AnalysisSnapshotError) as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(1) from None
 

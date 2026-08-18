@@ -2,7 +2,13 @@ from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
-from guardrail.domain.analysis import AnalysisEvidenceError, ExperimentAnalysisEvidence
+from guardrail.domain.analysis import (
+    AnalysisEvidenceError,
+    AnalysisSnapshotError,
+    AnalysisSnapshotRecord,
+    ExperimentAnalysisEvidence,
+    ExperimentAnalysisSnapshotPayload,
+)
 from guardrail.domain.ingestion import EventPublishingError, IngestionReceipt
 from guardrail.domain.integrity import ExperimentIntegrityEvidence, IntegrityEvidenceError
 from guardrail.domain.replay import (
@@ -113,6 +119,20 @@ class FailingAnalysisRepository:
         raise AnalysisEvidenceError("provider details")
 
 
+class StaticSnapshotRepository:
+    def persist(self, payload: ExperimentAnalysisSnapshotPayload) -> AnalysisSnapshotRecord:
+        return AnalysisSnapshotRecord(
+            health_snapshot_id="health_test",
+            analysis_snapshot_id="analysis_test",
+            created_at=datetime(2026, 8, 18, tzinfo=UTC),
+        )
+
+
+class FailingSnapshotRepository:
+    def persist(self, payload: ExperimentAnalysisSnapshotPayload) -> AnalysisSnapshotRecord:
+        raise AnalysisSnapshotError("provider details")
+
+
 class RecordingReplayWorkflow:
     def __init__(self) -> None:
         self.requests: list[tuple[str, ReplayRequest]] = []
@@ -204,6 +224,7 @@ def test_experiment_results_endpoint_returns_integrity_gated_statistics() -> Non
         create_app(
             integrity_repository=HealthyIntegrityRepository(),
             analysis_repository=HealthyAnalysisRepository(),
+            analysis_snapshot_repository=StaticSnapshotRepository(),
         )
     ) as client:
         client.post("/experiments", json=EXPERIMENT)
@@ -219,6 +240,8 @@ def test_experiment_results_endpoint_returns_integrity_gated_statistics() -> Non
     ]
     assert all(metric["sample_size_satisfied"] is True for metric in result["metrics"])
     assert all(metric["confidence_interval_lower"] is not None for metric in result["metrics"])
+    assert result["health_snapshot_id"] == "health_test"
+    assert result["analysis_snapshot_id"] == "analysis_test"
 
 
 def test_experiment_results_endpoint_masks_analysis_provider_failure() -> None:
@@ -233,6 +256,21 @@ def test_experiment_results_endpoint_masks_analysis_provider_failure() -> None:
 
     assert response.status_code == 503
     assert response.json() == {"detail": "Experiment analysis evidence is temporarily unavailable."}
+
+
+def test_experiment_results_endpoint_masks_snapshot_provider_failure() -> None:
+    with TestClient(
+        create_app(
+            integrity_repository=HealthyIntegrityRepository(),
+            analysis_repository=HealthyAnalysisRepository(),
+            analysis_snapshot_repository=FailingSnapshotRepository(),
+        )
+    ) as client:
+        client.post("/experiments", json=EXPERIMENT)
+        response = client.get("/experiments/new_ranking_algorithm/results")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Experiment analysis snapshot could not be persisted."}
 
 
 def test_simulation_reports_injected_faults() -> None:

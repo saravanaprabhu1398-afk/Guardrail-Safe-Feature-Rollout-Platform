@@ -8,6 +8,7 @@ from guardrail.infrastructure.snowflake import connect
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 INGESTION_DDL = PROJECT_ROOT / "snowflake" / "ddl" / "02_ingestion.sql"
+ANALYSIS_DDL = PROJECT_ROOT / "snowflake" / "ddl" / "04_analysis_snapshots.sql"
 
 
 def apply_sql_file(path: Path, settings: SnowflakeSettings) -> tuple[int, tuple | None]:
@@ -32,4 +33,13 @@ def run_ingestion_setup() -> None:
             "Verified: "
             f"role={final_row[0]} warehouse={final_row[1]} "
             f"active_contracts={final_row[2]}"
+        )
+
+
+def run_analysis_setup() -> None:
+    statement_count, final_row = apply_sql_file(ANALYSIS_DDL, SnowflakeSettings())  # type: ignore[call-arg]
+    print(f"Applied {statement_count} Phase 4 analysis snapshot statements.")
+    if final_row is not None:
+        print(
+            f"Verified: role={final_row[0]} warehouse={final_row[1]} snapshot_tables={final_row[2]}"
         )

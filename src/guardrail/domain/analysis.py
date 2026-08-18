@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
 from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from guardrail.domain.integrity import IntegrityCheckName
+from guardrail.domain.integrity import (
+    ExperimentHealthReport,
+    ExperimentIntegrityEvidence,
+    IntegrityCheckName,
+)
 
 
 class MetricType(StrEnum):
@@ -153,6 +158,32 @@ class ExperimentAnalysisReport(BaseModel):
     analysis_blocked: bool
     blocking_checks: tuple[IntegrityCheckName, ...]
     metrics: tuple[MetricAnalysisResult, ...]
+    health_snapshot_id: str | None = None
+    analysis_snapshot_id: str | None = None
+    snapshot_created_at: datetime | None = None
+
+
+class ExperimentAnalysisSnapshotPayload(BaseModel):
+    """Complete inputs and outputs required to reproduce one analysis."""
+
+    model_config = ConfigDict(frozen=True)
+
+    integrity_policy_version: str = Field(min_length=1)
+    integrity_policy: dict[str, int | float]
+    integrity_evidence: ExperimentIntegrityEvidence
+    health_report: ExperimentHealthReport
+    analysis_policy_version: str = Field(min_length=1)
+    analysis_policy: dict[str, int | float]
+    analysis_evidence: ExperimentAnalysisEvidence | None
+    analysis_report: ExperimentAnalysisReport
+
+
+class AnalysisSnapshotRecord(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    health_snapshot_id: str = Field(min_length=1)
+    analysis_snapshot_id: str = Field(min_length=1)
+    created_at: datetime
 
 
 class AnalysisEvidenceRepository(Protocol):
@@ -161,5 +192,13 @@ class AnalysisEvidenceRepository(Protocol):
     ) -> ExperimentAnalysisEvidence: ...
 
 
+class AnalysisSnapshotRepository(Protocol):
+    def persist(self, payload: ExperimentAnalysisSnapshotPayload) -> AnalysisSnapshotRecord: ...
+
+
 class AnalysisEvidenceError(RuntimeError):
+    pass
+
+
+class AnalysisSnapshotError(RuntimeError):
     pass

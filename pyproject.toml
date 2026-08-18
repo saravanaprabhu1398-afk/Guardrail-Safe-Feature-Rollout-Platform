@@ -37,6 +37,7 @@ guardrail-phase4-integrity-check = "guardrail.infrastructure.integrity:run_phase
 guardrail-phase3-smoke = "guardrail.infrastructure.analytics:run_phase3_smoke"
 guardrail-snowflake-check = "guardrail.infrastructure.snowflake:run_check"
 guardrail-snowflake-setup-ingestion = "guardrail.infrastructure.bootstrap:run_ingestion_setup"
+guardrail-snowflake-setup-analysis = "guardrail.infrastructure.bootstrap:run_analysis_setup"
 guardrail-phase2-smoke = "guardrail.infrastructure.smoke:run_phase2_smoke"
 guardrail-phase2-replay-smoke = "guardrail.infrastructure.smoke:run_replay_smoke"
 guardrail-redpanda-worker = "guardrail.infrastructure.redpanda:run_worker"

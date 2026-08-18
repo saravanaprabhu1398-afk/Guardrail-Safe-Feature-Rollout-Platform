@@ -14,6 +14,8 @@ from guardrail.domain.integrity import (
     IntegritySeverity,
 )
 
+INTEGRITY_POLICY_VERSION = "phase4-integrity-v1"
+
 
 @dataclass(frozen=True)
 class IntegrityPolicy:
@@ -57,6 +59,10 @@ class IntegrityEvaluator:
 
     def __init__(self, policy: IntegrityPolicy | None = None) -> None:
         self._policy = policy or IntegrityPolicy()
+
+    @property
+    def policy(self) -> IntegrityPolicy:
+        return self._policy
 
     def evaluate(
         self,
@@ -472,8 +478,26 @@ class IntegrityService:
         allocation_version: int,
         expected_treatment_percentage: int,
     ) -> ExperimentHealthReport:
+        _, report = self.get_health_with_evidence(
+            experiment_id,
+            allocation_version,
+            expected_treatment_percentage,
+        )
+        return report
+
+    @property
+    def policy(self) -> IntegrityPolicy:
+        return self._evaluator.policy
+
+    def get_health_with_evidence(
+        self,
+        experiment_id: str,
+        allocation_version: int,
+        expected_treatment_percentage: int,
+    ) -> tuple[ExperimentIntegrityEvidence, ExperimentHealthReport]:
         evidence = self._repository.get_evidence(experiment_id, allocation_version)
-        return self._evaluator.evaluate(
+        report = self._evaluator.evaluate(
             evidence,
             expected_treatment_percentage=expected_treatment_percentage,
         )
+        return evidence, report

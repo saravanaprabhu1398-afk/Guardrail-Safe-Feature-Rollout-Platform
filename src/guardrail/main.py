@@ -9,6 +9,8 @@ from guardrail.config import SnowflakeSettings, TransportSettings
 from guardrail.domain.analysis import (
     AnalysisEvidenceError,
     AnalysisEvidenceRepository,
+    AnalysisSnapshotError,
+    AnalysisSnapshotRepository,
     ExperimentAnalysisReport,
 )
 from guardrail.domain.events import SimulationRequest, SimulationResult
@@ -42,6 +44,7 @@ from guardrail.infrastructure.analysis import SnowflakeAnalysisRepository
 from guardrail.infrastructure.integrity import SnowflakeIntegrityRepository
 from guardrail.infrastructure.redpanda import RedpandaEventDispatcher
 from guardrail.infrastructure.replay import SnowflakeReplayRepository
+from guardrail.infrastructure.snapshots import SnowflakeAnalysisSnapshotRepository
 from guardrail.infrastructure.streaming import SnowpipeEventPublisher
 from guardrail.services.analysis import ExperimentAnalysisService
 from guardrail.services.assignment import AssignmentService
@@ -64,6 +67,7 @@ def create_app(
     event_dispatcher: EventDispatcher | None = None,
     integrity_repository: IntegrityEvidenceRepository | None = None,
     analysis_repository: AnalysisEvidenceRepository | None = None,
+    analysis_snapshot_repository: AnalysisSnapshotRepository | None = None,
 ) -> FastAPI:
     experiment_store = store or InMemoryExperimentStore()
     assignment_service = AssignmentService(experiment_store)
@@ -72,7 +76,9 @@ def create_app(
     replay_service = replay_workflow
     dispatcher = event_dispatcher
     evidence_repository = integrity_repository
+    use_default_snapshot_repository = analysis_repository is None
     metric_evidence_repository = analysis_repository
+    snapshot_repository = analysis_snapshot_repository
     integrity_service: IntegrityService | None = None
     analysis_service: ExperimentAnalysisService | None = None
     snowflake_settings: SnowflakeSettings | None = None
@@ -124,12 +130,16 @@ def create_app(
         return integrity_service
 
     def get_analysis_service() -> ExperimentAnalysisService:
-        nonlocal analysis_service, metric_evidence_repository
+        nonlocal analysis_service, metric_evidence_repository, snapshot_repository
         if analysis_service is None:
             if metric_evidence_repository is None:
                 metric_evidence_repository = SnowflakeAnalysisRepository(get_snowflake_settings())
+            if snapshot_repository is None and use_default_snapshot_repository:
+                snapshot_repository = SnowflakeAnalysisSnapshotRepository(get_snowflake_settings())
             analysis_service = ExperimentAnalysisService(
-                get_integrity_service(), metric_evidence_repository
+                get_integrity_service(),
+                metric_evidence_repository,
+                snapshot_repository=snapshot_repository,
             )
         return analysis_service
 
@@ -227,6 +237,11 @@ def create_app(
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Experiment analysis evidence is temporarily unavailable.",
+            ) from exc
+        except AnalysisSnapshotError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Experiment analysis snapshot could not be persisted.",
             ) from exc
 
     @application.post(
