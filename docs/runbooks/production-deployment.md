@@ -60,6 +60,27 @@ Application roles are:
 | `guardrail_assignment_client` | Obtain stable assignments |
 | `guardrail_telemetry_producer` | Submit product-event batches |
 
+## Publish the release image
+
+Every successful push to `main` publishes the application image to GHCR only after the complete
+test, migration, dependency-audit, container, and vulnerability gates pass. The release workflow
+publishes `sha-<full-git-sha>` and deliberately does not publish `latest`. A `v*` Git tag also
+publishes its semantic version tag. The image includes a BuildKit SBOM and provenance, plus a
+GitHub-signed provenance attestation tied to the registry digest.
+
+Use the image and digest printed in the `Publish immutable application image` job summary. Verify
+the attestation before promoting the image:
+
+```bash
+gh attestation verify \
+  oci://ghcr.io/OWNER/REPOSITORY:sha-FULL_GIT_SHA \
+  --repo OWNER/REPOSITORY
+```
+
+If the GHCR package is private, configure the cluster's registry credential and set the Helm
+`imagePullSecrets` value. Production promotion must use the SHA tag from the successful workflow;
+do not manually rebuild the same tag.
+
 ## Deploy
 
 Copy `infrastructure/terraform/terraform.tfvars.example` to an ignored environment-specific
