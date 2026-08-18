@@ -6,6 +6,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, status
 
 from guardrail.config import SnowflakeSettings, TransportSettings
+from guardrail.domain.analysis import (
+    AnalysisEvidenceError,
+    AnalysisEvidenceRepository,
+    ExperimentAnalysisReport,
+)
 from guardrail.domain.events import SimulationRequest, SimulationResult
 from guardrail.domain.experiments import Assignment, Experiment, ExperimentCreate
 from guardrail.domain.ingestion import (
@@ -33,10 +38,12 @@ from guardrail.domain.transport import (
     EventDispatchError,
     EventDispatchReceipt,
 )
+from guardrail.infrastructure.analysis import SnowflakeAnalysisRepository
 from guardrail.infrastructure.integrity import SnowflakeIntegrityRepository
 from guardrail.infrastructure.redpanda import RedpandaEventDispatcher
 from guardrail.infrastructure.replay import SnowflakeReplayRepository
 from guardrail.infrastructure.streaming import SnowpipeEventPublisher
+from guardrail.services.analysis import ExperimentAnalysisService
 from guardrail.services.assignment import AssignmentService
 from guardrail.services.integrity import IntegrityService
 from guardrail.services.replay import ReplayService
@@ -56,6 +63,7 @@ def create_app(
     replay_workflow: ReplayWorkflow | None = None,
     event_dispatcher: EventDispatcher | None = None,
     integrity_repository: IntegrityEvidenceRepository | None = None,
+    analysis_repository: AnalysisEvidenceRepository | None = None,
 ) -> FastAPI:
     experiment_store = store or InMemoryExperimentStore()
     assignment_service = AssignmentService(experiment_store)
@@ -64,7 +72,9 @@ def create_app(
     replay_service = replay_workflow
     dispatcher = event_dispatcher
     evidence_repository = integrity_repository
+    metric_evidence_repository = analysis_repository
     integrity_service: IntegrityService | None = None
+    analysis_service: ExperimentAnalysisService | None = None
     snowflake_settings: SnowflakeSettings | None = None
     transport_settings: TransportSettings | None = None
 
@@ -112,6 +122,16 @@ def create_app(
                 evidence_repository = SnowflakeIntegrityRepository(get_snowflake_settings())
             integrity_service = IntegrityService(evidence_repository)
         return integrity_service
+
+    def get_analysis_service() -> ExperimentAnalysisService:
+        nonlocal analysis_service, metric_evidence_repository
+        if analysis_service is None:
+            if metric_evidence_repository is None:
+                metric_evidence_repository = SnowflakeAnalysisRepository(get_snowflake_settings())
+            analysis_service = ExperimentAnalysisService(
+                get_integrity_service(), metric_evidence_repository
+            )
+        return analysis_service
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -183,6 +203,30 @@ def create_app(
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Experiment integrity evidence is temporarily unavailable.",
+            ) from exc
+
+    @application.get(
+        "/experiments/{experiment_id}/results",
+        response_model=ExperimentAnalysisReport,
+        tags=["experiments"],
+    )
+    def get_experiment_results(experiment_id: str) -> ExperimentAnalysisReport:
+        try:
+            experiment = experiment_store.get_experiment(experiment_id)
+            return get_analysis_service().get_results(
+                experiment.experiment_id,
+                experiment.allocation_version,
+                experiment.treatment_percentage,
+            )
+        except ExperimentNotFoundError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Experiment '{experiment_id}' was not found.",
+            ) from exc
+        except (IntegrityEvidenceError, AnalysisEvidenceError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Experiment analysis evidence is temporarily unavailable.",
             ) from exc
 
     @application.post(

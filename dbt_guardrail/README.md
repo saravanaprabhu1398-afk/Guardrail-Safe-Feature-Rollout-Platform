@@ -38,7 +38,7 @@ An exposure contributes to a metric only when a preceding assignment exists and
 the exposed variant matches the assigned variant. Invalid exposures remain in the
 exposure fact so the integrity layer can measure the problem instead of hiding it.
 
-## Phase 4 integrity consumption
+## Phase 4 integrity and analysis consumption
 
 The on-demand integrity engine reads raw delivery identity, canonical event latency,
 assignment and exposure facts, and user-experiment metrics. It evaluates sample ratio,
@@ -46,6 +46,14 @@ variant flicker, invalid exposures, event loss, duplicate delivery, late data, a
 cross-variant p95 receive-lag skew without changing the Phase 3 model grains. Health
 results are returned through the CLI and API; persisted health snapshots remain a
 later Phase 4 delivery item.
+
+Only after every blocking integrity check passes, the statistical-analysis repository
+reads version-scoped conversion counts plus delivery-time count, mean, and sample
+variance from `METRICS.FCT_USER_EXPERIMENT_METRICS`. The service calculates a pooled
+two-proportion z-test and Welch's unequal-variance t-test from those summaries. A
+blocked health report short-circuits the warehouse metric query, so invalid telemetry
+cannot produce an interpretable statistical result. Persisted analysis snapshots,
+confidence intervals, and formal sample-size calculations remain Phase 4 work.
 
 ## Run
 
@@ -58,6 +66,7 @@ uv run guardrail-dbt debug
 uv run guardrail-dbt build
 uv run guardrail-dbt source freshness
 uv run guardrail-phase3-smoke
+uv run guardrail-phase4-analysis ranking_phase3_20260806
 ```
 
 `guardrail-phase3-smoke` expects a persisted simulation so it can prove the facts

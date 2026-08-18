@@ -6,7 +6,7 @@
 **Primary focus:** Data engineering, product infrastructure, experimentation, and reliable event processing
 **Reference domain:** A simulated food-delivery marketplace
 
-**Progress:** 32 of 50 delivery items complete (64%) — see the
+**Progress:** 34 of 50 delivery items complete (68%) — see the
 [project progress tracker](docs/PROJECT_PROGRESS.md) for shipped evidence, active
 work, risks, and the next milestone.
 
@@ -69,9 +69,13 @@ The first vertical slice is runnable locally and includes:
   implemented experiment-health API
 - Blocking event-loss, late-data, and variant freshness-skew gates plus a non-blocking
   duplicate-delivery operational signal
+- Integrity-gated statistical analysis using a pooled two-proportion z-test for
+  conversion and Welch's unequal-variance t-test for delivery time
+- Treatment-minus-control absolute and relative lift, sparse-data safeguards, a
+  Snowflake evidence repository, an executable analysis command, and a results API
 
-Statistical inference, reproducible analysis snapshots, rollout automation, and the
-control UI remain planned in the phases below.
+Confidence intervals, formal sample-size and power requirements, reproducible analysis
+snapshots, rollout automation, and the control UI remain planned in the phases below.
 
 ---
 
@@ -463,11 +467,12 @@ Each check emits a structured result with severity, observed value, expected ran
 
 ## Statistical analysis
 
-The initial analysis engine intentionally stays focused:
+The initial analysis engine intentionally stays focused. The first three capabilities
+are implemented; the remaining guardrails are the next Phase 4 and Phase 5 slices:
 
-- Difference in proportions for conversion-style metrics
-- Welch's t-test for continuous metrics
-- Absolute and relative lift
+- Difference in proportions for conversion-style metrics — **implemented**
+- Welch's t-test for continuous metrics — **implemented**
+- Absolute and relative lift — **implemented**
 - Confidence intervals
 - Minimum sample size and power calculation
 - Practical-significance thresholds
@@ -527,7 +532,7 @@ Automated recommendations remain explainable. Human approval can be required for
 | `POST` | `/rejections/{rejection_id}/replay` | Validate and replay a corrected event with lineage. **Implemented.** |
 | `POST` | `/simulations/{simulation_id}/failures` | Inject a selected data failure. |
 | `GET` | `/experiments/{experiment_id}/health` | Return allocation, consistency, and telemetry-health results. **Implemented.** |
-| `GET` | `/experiments/{experiment_id}/results` | Return metric and statistical results. |
+| `GET` | `/experiments/{experiment_id}/results` | Return integrity-gated metric and statistical results. **Implemented.** |
 | `GET` | `/experiments/{experiment_id}/decisions` | Return rollout decision history. |
 | `POST` | `/experiments/{experiment_id}/transitions` | Approve or apply an allowed transition. |
 
@@ -663,9 +668,9 @@ The estimated timeline is **6–8 weeks part-time**. Each phase ends with a demo
 - [x] Implement sample ratio mismatch detection.
 - [x] Detect variant flicker and assignment/exposure inconsistencies.
 - [x] Detect freshness skew, event loss, duplicates, and late data.
-- [ ] Implement proportion and continuous metric analysis.
+- [x] Implement proportion and continuous metric analysis.
 - [ ] Calculate confidence intervals and required sample size.
-- [ ] Block statistical decisions when required checks fail.
+- [x] Block statistical decisions when required checks fail.
 - [ ] Persist reproducible analysis snapshots.
 
 **Exit criterion:** A healthy experiment produces a result, while deliberately corrupted experiments are correctly blocked.
@@ -933,6 +938,7 @@ uv run guardrail-dbt build
 uv run guardrail-dbt source freshness
 uv run guardrail-phase3-smoke
 uv run guardrail-phase4-integrity-check ranking_phase3_20260806
+uv run guardrail-phase4-analysis ranking_phase3_20260806
 ```
 
 The build creates one `CLEAN` staging view, six `CORE` Dynamic Tables, and two
@@ -948,6 +954,12 @@ cross-variant p95 receive-lag skew. It prints structured evidence and exits with
 non-blocking because stable `event_id` deduplication protects analytical facts, while
 still surfacing excessive producer or transport retries. Use `--treatment-percentage`
 and `--allocation-version` when evaluating another rollout configuration.
+
+The analysis command first runs the same seven integrity checks. If any required check
+fails or is inconclusive, it returns `BLOCKED`, omits metric statistics, and exits with
+status 2. A healthy experiment continues to a two-sided pooled two-proportion z-test
+for conversion and a two-sided Welch test for delivery minutes, returning
+treatment-minus-control estimates, lift, uncertainty, test statistics, and p-values.
 
 ### Setup required from the project owner
 

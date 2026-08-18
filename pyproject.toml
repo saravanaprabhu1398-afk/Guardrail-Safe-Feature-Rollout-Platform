@@ -13,6 +13,7 @@ dependencies = [
     "fastapi>=0.116,<1",
     "pydantic>=2.11,<3",
     "pydantic-settings>=2.10,<3",
+    "scipy>=1.17,<2",
     "snowflake-connector-python>=4.7,<5",
     "snowpipe-streaming>=1.6,<2",
     "uvicorn[standard]>=0.35,<1",
@@ -31,6 +32,7 @@ dev = [
 [project.scripts]
 guardrail-api = "guardrail.main:run"
 guardrail-dbt = "guardrail.infrastructure.dbt:run"
+guardrail-phase4-analysis = "guardrail.infrastructure.analysis:run_phase4_analysis"
 guardrail-phase4-integrity-check = "guardrail.infrastructure.integrity:run_phase4_integrity_check"
 guardrail-phase3-smoke = "guardrail.infrastructure.analytics:run_phase3_smoke"
 guardrail-snowflake-check = "guardrail.infrastructure.snowflake:run_check"

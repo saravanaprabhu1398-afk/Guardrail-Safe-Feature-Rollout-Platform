@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
+from guardrail.domain.analysis import AnalysisEvidenceError, ExperimentAnalysisEvidence
 from guardrail.domain.ingestion import EventPublishingError, IngestionReceipt
 from guardrail.domain.integrity import ExperimentIntegrityEvidence, IntegrityEvidenceError
 from guardrail.domain.replay import (
@@ -83,6 +84,33 @@ class FailingIntegrityRepository:
         self, experiment_id: str, allocation_version: int
     ) -> ExperimentIntegrityEvidence:
         raise IntegrityEvidenceError("provider details")
+
+
+class HealthyAnalysisRepository:
+    def get_evidence(
+        self, experiment_id: str, allocation_version: int
+    ) -> ExperimentAnalysisEvidence:
+        return ExperimentAnalysisEvidence(
+            experiment_id=experiment_id,
+            allocation_version=allocation_version,
+            control_exposed_users=950,
+            control_converted_users=380,
+            treatment_exposed_users=50,
+            treatment_converted_users=25,
+            control_delivery_observations=200,
+            control_delivery_mean=35.0,
+            control_delivery_variance=25.0,
+            treatment_delivery_observations=12,
+            treatment_delivery_mean=32.0,
+            treatment_delivery_variance=36.0,
+        )
+
+
+class FailingAnalysisRepository:
+    def get_evidence(
+        self, experiment_id: str, allocation_version: int
+    ) -> ExperimentAnalysisEvidence:
+        raise AnalysisEvidenceError("provider details")
 
 
 class RecordingReplayWorkflow:
@@ -169,6 +197,40 @@ def test_experiment_health_endpoint_masks_evidence_provider_failure() -> None:
     assert response.json() == {
         "detail": "Experiment integrity evidence is temporarily unavailable."
     }
+
+
+def test_experiment_results_endpoint_returns_integrity_gated_statistics() -> None:
+    with TestClient(
+        create_app(
+            integrity_repository=HealthyIntegrityRepository(),
+            analysis_repository=HealthyAnalysisRepository(),
+        )
+    ) as client:
+        client.post("/experiments", json=EXPERIMENT)
+        response = client.get("/experiments/new_ranking_algorithm/results")
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["status"] == "COMPLETE"
+    assert result["analysis_blocked"] is False
+    assert [metric["metric_name"] for metric in result["metrics"]] == [
+        "order_conversion_rate",
+        "average_delivery_minutes",
+    ]
+
+
+def test_experiment_results_endpoint_masks_analysis_provider_failure() -> None:
+    with TestClient(
+        create_app(
+            integrity_repository=HealthyIntegrityRepository(),
+            analysis_repository=FailingAnalysisRepository(),
+        )
+    ) as client:
+        client.post("/experiments", json=EXPERIMENT)
+        response = client.get("/experiments/new_ranking_algorithm/results")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Experiment analysis evidence is temporarily unavailable."}
 
 
 def test_simulation_reports_injected_faults() -> None:
