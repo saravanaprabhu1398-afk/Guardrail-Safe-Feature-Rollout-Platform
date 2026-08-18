@@ -6,7 +6,7 @@
 **Primary focus:** Data engineering, product infrastructure, experimentation, and reliable event processing
 **Reference domain:** A simulated food-delivery marketplace
 
-**Progress:** 31 of 50 delivery items complete (62%) — see the
+**Progress:** 32 of 50 delivery items complete (64%) — see the
 [project progress tracker](docs/PROJECT_PROGRESS.md) for shipped evidence, active
 work, risks, and the next milestone.
 
@@ -67,9 +67,11 @@ The first vertical slice is runnable locally and includes:
   assignment/exposure consistency gates
 - A version-scoped Snowflake evidence query, executable integrity command, and
   implemented experiment-health API
+- Blocking event-loss, late-data, and variant freshness-skew gates plus a non-blocking
+  duplicate-delivery operational signal
 
-Freshness and event-loss integrity checks, statistical inference, rollout automation,
-and the control UI remain planned in the phases below.
+Statistical inference, reproducible analysis snapshots, rollout automation, and the
+control UI remain planned in the phases below.
 
 ---
 
@@ -524,7 +526,7 @@ Automated recommendations remain explainable. Human approval can be required for
 | `GET` | `/rejections/{rejection_id}` | Inspect a quarantined event and its replay status. **Implemented.** |
 | `POST` | `/rejections/{rejection_id}/replay` | Validate and replay a corrected event with lineage. **Implemented.** |
 | `POST` | `/simulations/{simulation_id}/failures` | Inject a selected data failure. |
-| `GET` | `/experiments/{experiment_id}/health` | Return blocking allocation and consistency results. **Implemented.** |
+| `GET` | `/experiments/{experiment_id}/health` | Return allocation, consistency, and telemetry-health results. **Implemented.** |
 | `GET` | `/experiments/{experiment_id}/results` | Return metric and statistical results. |
 | `GET` | `/experiments/{experiment_id}/decisions` | Return rollout decision history. |
 | `POST` | `/experiments/{experiment_id}/transitions` | Approve or apply an allowed transition. |
@@ -660,7 +662,7 @@ The estimated timeline is **6–8 weeks part-time**. Each phase ends with a demo
 
 - [x] Implement sample ratio mismatch detection.
 - [x] Detect variant flicker and assignment/exposure inconsistencies.
-- [ ] Detect freshness skew, event loss, duplicates, and late data.
+- [x] Detect freshness skew, event loss, duplicates, and late data.
 - [ ] Implement proportion and continuous metric analysis.
 - [ ] Calculate confidence intervals and required sample size.
 - [ ] Block statistical decisions when required checks fail.
@@ -939,13 +941,13 @@ requires at least one persisted experiment journey and verifies non-empty facts,
 all eight materializations, and the critical analytical invariants. Detailed model
 lineage and grains are documented in the [dbt project guide](dbt_guardrail/README.md).
 
-The Phase 4 command evaluates eligible exposed-user allocation against the configured
-5% treatment split, requires at least five expected users in each variant, and checks
-variant and assignment/exposure consistency. It prints structured evidence and exits
-with status 2 whenever a check fails or lacks enough data, preventing a downstream
-statistical decision from treating an unhealthy experiment as valid. Use
-`--treatment-percentage` and `--allocation-version` when evaluating another rollout
-configuration.
+The Phase 4 command evaluates seven checks: sample-ratio mismatch, variant flicker,
+assignment/exposure consistency, event loss, duplicate delivery, late data, and
+cross-variant p95 receive-lag skew. It prints structured evidence and exits with status
+2 whenever a blocking check fails or lacks enough data. Duplicate delivery is
+non-blocking because stable `event_id` deduplication protects analytical facts, while
+still surfacing excessive producer or transport retries. Use `--treatment-percentage`
+and `--allocation-version` when evaluating another rollout configuration.
 
 ### Setup required from the project owner
 

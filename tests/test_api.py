@@ -67,6 +67,14 @@ class HealthyIntegrityRepository:
             orphan_exposures=0,
             variant_mismatch_exposures=0,
             assignments_without_exposure=0,
+            raw_event_deliveries=1_000,
+            duplicate_event_deliveries=0,
+            control_canonical_events=950,
+            treatment_canonical_events=50,
+            control_late_events=0,
+            treatment_late_events=0,
+            control_p95_receive_lag_seconds=2.0,
+            treatment_p95_receive_lag_seconds=3.0,
         )
 
 
@@ -145,6 +153,10 @@ def test_experiment_health_endpoint_returns_integrity_results() -> None:
         "sample_ratio_mismatch",
         "variant_flicker",
         "assignment_exposure_consistency",
+        "event_loss",
+        "duplicate_delivery",
+        "late_data",
+        "variant_freshness_skew",
     ]
 
 

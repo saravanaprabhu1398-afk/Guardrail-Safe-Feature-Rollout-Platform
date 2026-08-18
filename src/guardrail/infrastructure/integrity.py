@@ -77,6 +77,30 @@ eligible_exposed_users AS (
     INNER JOIN query_scope
         ON metrics.experiment_id = query_scope.experiment_id
         AND metrics.allocation_version = query_scope.allocation_version
+),
+raw_events_in_scope AS (
+    SELECT raw_events.event_id
+    FROM GUARDRAIL.RAW.PRODUCT_EVENTS AS raw_events
+    CROSS JOIN query_scope
+    CROSS JOIN version_bounds
+    WHERE raw_events.payload:experiment_id::STRING = query_scope.experiment_id
+      AND raw_events.event_timestamp >= version_bounds.version_start
+      AND (
+          version_bounds.next_version_start IS NULL
+          OR raw_events.event_timestamp < version_bounds.next_version_start
+      )
+),
+canonical_events_in_scope AS (
+    SELECT staged.variant_id, staged.is_late_event, staged.receive_lag_seconds
+    FROM GUARDRAIL.CLEAN.STG_PRODUCT_EVENTS AS staged
+    CROSS JOIN query_scope
+    CROSS JOIN version_bounds
+    WHERE staged.experiment_id = query_scope.experiment_id
+      AND staged.event_timestamp >= version_bounds.version_start
+      AND (
+          version_bounds.next_version_start IS NULL
+          OR staged.event_timestamp < version_bounds.next_version_start
+      )
 )
 SELECT
     (SELECT COALESCE(COUNT_IF(variant_id = 'control'), 0) FROM first_assignments),
@@ -96,7 +120,26 @@ SELECT
           SELECT 1
           FROM eligible_exposed_users
           WHERE eligible_exposed_users.user_id = first_assignments.user_id
-      ))
+      )),
+    (SELECT COALESCE(COUNT_IF(event_id IS NOT NULL), 0) FROM raw_events_in_scope),
+    (SELECT GREATEST(
+        COALESCE(COUNT_IF(event_id IS NOT NULL), 0) - COUNT(DISTINCT event_id),
+        0
+    ) FROM raw_events_in_scope),
+    (SELECT COALESCE(COUNT_IF(variant_id = 'control'), 0)
+       FROM canonical_events_in_scope),
+    (SELECT COALESCE(COUNT_IF(variant_id = 'treatment'), 0)
+       FROM canonical_events_in_scope),
+    (SELECT COALESCE(COUNT_IF(variant_id = 'control' AND is_late_event), 0)
+       FROM canonical_events_in_scope),
+    (SELECT COALESCE(COUNT_IF(variant_id = 'treatment' AND is_late_event), 0)
+       FROM canonical_events_in_scope),
+    (SELECT PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY receive_lag_seconds)
+       FROM canonical_events_in_scope
+      WHERE variant_id = 'control'),
+    (SELECT PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY receive_lag_seconds)
+       FROM canonical_events_in_scope
+      WHERE variant_id = 'treatment')
 """
 
 
@@ -144,6 +187,14 @@ class SnowflakeIntegrityRepository:
                 orphan_exposures=row[7],
                 variant_mismatch_exposures=row[8],
                 assignments_without_exposure=row[9],
+                raw_event_deliveries=row[10],
+                duplicate_event_deliveries=row[11],
+                control_canonical_events=row[12],
+                treatment_canonical_events=row[13],
+                control_late_events=row[14],
+                treatment_late_events=row[15],
+                control_p95_receive_lag_seconds=row[16],
+                treatment_p95_receive_lag_seconds=row[17],
             )
         except (IndexError, TypeError, ValueError) as exc:
             raise IntegrityEvidenceError(

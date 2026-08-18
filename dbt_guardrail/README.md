@@ -38,6 +38,15 @@ An exposure contributes to a metric only when a preceding assignment exists and
 the exposed variant matches the assigned variant. Invalid exposures remain in the
 exposure fact so the integrity layer can measure the problem instead of hiding it.
 
+## Phase 4 integrity consumption
+
+The on-demand integrity engine reads raw delivery identity, canonical event latency,
+assignment and exposure facts, and user-experiment metrics. It evaluates sample ratio,
+variant flicker, invalid exposures, event loss, duplicate delivery, late data, and
+cross-variant p95 receive-lag skew without changing the Phase 3 model grains. Health
+results are returned through the CLI and API; persisted health snapshots remain a
+later Phase 4 delivery item.
+
 ## Run
 
 The repository wrapper reads the ignored PAT file and passes it to dbt's native

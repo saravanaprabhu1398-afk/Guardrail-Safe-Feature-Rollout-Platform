@@ -17,20 +17,28 @@ from guardrail.domain.integrity import (
 
 @dataclass(frozen=True)
 class IntegrityPolicy:
-    """Blocking thresholds for the first Phase 4 integrity slice."""
+    """Blocking thresholds for Phase 4 experiment-integrity evaluation."""
 
     sample_ratio_mismatch_alpha: float = 0.001
     minimum_expected_variant_users: float = 5.0
     maximum_variant_flicker_rate: float = 0.0
-    maximum_assignment_exposure_gap_rate: float = 0.05
     maximum_invalid_exposure_rate: float = 0.0
+    minimum_variant_assignments_for_event_loss: int = 20
+    maximum_variant_event_loss_rate: float = 0.05
+    maximum_event_loss_rate_skew: float = 0.03
+    maximum_duplicate_delivery_rate: float = 0.05
+    maximum_variant_late_event_rate: float = 0.05
+    maximum_freshness_skew_seconds: float = 120.0
 
     def __post_init__(self) -> None:
         probability_fields = (
             self.sample_ratio_mismatch_alpha,
             self.maximum_variant_flicker_rate,
-            self.maximum_assignment_exposure_gap_rate,
             self.maximum_invalid_exposure_rate,
+            self.maximum_variant_event_loss_rate,
+            self.maximum_event_loss_rate_skew,
+            self.maximum_duplicate_delivery_rate,
+            self.maximum_variant_late_event_rate,
         )
         if any(value < 0 or value > 1 for value in probability_fields):
             raise ValueError("Integrity policy rates must be between zero and one.")
@@ -38,6 +46,10 @@ class IntegrityPolicy:
             raise ValueError("Sample-ratio mismatch alpha must be greater than zero.")
         if self.minimum_expected_variant_users <= 0:
             raise ValueError("Minimum expected variant users must be greater than zero.")
+        if self.minimum_variant_assignments_for_event_loss <= 0:
+            raise ValueError("Minimum variant assignments for event loss must be positive.")
+        if self.maximum_freshness_skew_seconds < 0:
+            raise ValueError("Maximum freshness skew cannot be negative.")
 
 
 class IntegrityEvaluator:
@@ -59,6 +71,10 @@ class IntegrityEvaluator:
             self._sample_ratio_check(evidence, expected_treatment_percentage),
             self._variant_flicker_check(evidence),
             self._assignment_exposure_check(evidence),
+            self._event_loss_check(evidence),
+            self._duplicate_delivery_check(evidence),
+            self._late_data_check(evidence),
+            self._freshness_skew_check(evidence),
         )
         return ExperimentHealthReport(
             experiment_id=evidence.experiment_id,
@@ -191,11 +207,6 @@ class IntegrityEvaluator:
                 recommended_action=IntegrityAction.CONTINUE,
             )
 
-        gap_rate = (
-            evidence.assignments_without_exposure / evidence.assigned_users
-            if evidence.assigned_users
-            else 0.0
-        )
         invalid_exposure_count = evidence.orphan_exposures + evidence.variant_mismatch_exposures
         invalid_exposure_rate = (
             invalid_exposure_count / evidence.total_exposures if evidence.total_exposures else 0.0
@@ -206,11 +217,10 @@ class IntegrityEvaluator:
             else 0.0
         )
         failed = (
-            gap_rate > self._policy.maximum_assignment_exposure_gap_rate
-            or invalid_exposure_rate > self._policy.maximum_invalid_exposure_rate
+            invalid_exposure_rate > self._policy.maximum_invalid_exposure_rate
             or evidence.assignment_variant_flicker_users > 0
         )
-        observed_value = max(gap_rate, invalid_exposure_rate, assignment_flicker_rate)
+        observed_value = max(invalid_exposure_rate, assignment_flicker_rate)
         return IntegrityCheckResult(
             check_name=IntegrityCheckName.ASSIGNMENT_EXPOSURE_CONSISTENCY,
             status=IntegrityCheckStatus.FAIL if failed else IntegrityCheckStatus.PASS,
@@ -218,8 +228,6 @@ class IntegrityEvaluator:
             blocks_analysis=failed,
             observed_value=observed_value,
             expected_range=(
-                "assignment gap <= "
-                f"{self._policy.maximum_assignment_exposure_gap_rate:.4f}; "
                 "invalid exposure rate <= "
                 f"{self._policy.maximum_invalid_exposure_rate:.4f}; "
                 "no assignment variant flicker"
@@ -227,8 +235,6 @@ class IntegrityEvaluator:
             evidence={
                 "assigned_users": evidence.assigned_users,
                 "total_exposures": evidence.total_exposures,
-                "assignments_without_exposure": evidence.assignments_without_exposure,
-                "assignment_exposure_gap_rate": gap_rate,
                 "orphan_exposures": evidence.orphan_exposures,
                 "variant_mismatch_exposures": evidence.variant_mismatch_exposures,
                 "invalid_exposure_rate": invalid_exposure_rate,
@@ -240,6 +246,214 @@ class IntegrityEvaluator:
                 else "Assignment and exposure evidence is consistent."
             ),
             recommended_action=IntegrityAction.PAUSE if failed else IntegrityAction.NONE,
+        )
+
+    def _event_loss_check(self, evidence: ExperimentIntegrityEvidence) -> IntegrityCheckResult:
+        if (
+            evidence.control_assignments < self._policy.minimum_variant_assignments_for_event_loss
+            or evidence.treatment_assignments
+            < self._policy.minimum_variant_assignments_for_event_loss
+        ):
+            return IntegrityCheckResult(
+                check_name=IntegrityCheckName.EVENT_LOSS,
+                status=IntegrityCheckStatus.INSUFFICIENT_DATA,
+                severity=IntegritySeverity.WARNING,
+                blocks_analysis=True,
+                observed_value=None,
+                expected_range=(
+                    "At least "
+                    f"{self._policy.minimum_variant_assignments_for_event_loss} assignments "
+                    "in each variant"
+                ),
+                threshold=float(self._policy.minimum_variant_assignments_for_event_loss),
+                evidence={
+                    "control_assignments": evidence.control_assignments,
+                    "treatment_assignments": evidence.treatment_assignments,
+                    "assignments_without_exposure": evidence.assignments_without_exposure,
+                },
+                message="Both variants need enough assignments before event loss can be evaluated.",
+                recommended_action=IntegrityAction.CONTINUE,
+            )
+
+        control_loss_rate = (
+            evidence.control_assignments - evidence.control_exposed_users
+        ) / evidence.control_assignments
+        treatment_loss_rate = (
+            evidence.treatment_assignments - evidence.treatment_exposed_users
+        ) / evidence.treatment_assignments
+        rate_skew = abs(control_loss_rate - treatment_loss_rate)
+        failed = (
+            max(control_loss_rate, treatment_loss_rate)
+            > self._policy.maximum_variant_event_loss_rate
+            or rate_skew > self._policy.maximum_event_loss_rate_skew
+        )
+        return IntegrityCheckResult(
+            check_name=IntegrityCheckName.EVENT_LOSS,
+            status=IntegrityCheckStatus.FAIL if failed else IntegrityCheckStatus.PASS,
+            severity=IntegritySeverity.CRITICAL if failed else IntegritySeverity.INFO,
+            blocks_analysis=failed,
+            observed_value=max(control_loss_rate, treatment_loss_rate),
+            expected_range=(
+                "variant event-loss rate <= "
+                f"{self._policy.maximum_variant_event_loss_rate:.4f}; "
+                "between-variant skew <= "
+                f"{self._policy.maximum_event_loss_rate_skew:.4f}"
+            ),
+            evidence={
+                "control_assignments": evidence.control_assignments,
+                "control_exposed_users": evidence.control_exposed_users,
+                "control_event_loss_rate": control_loss_rate,
+                "treatment_assignments": evidence.treatment_assignments,
+                "treatment_exposed_users": evidence.treatment_exposed_users,
+                "treatment_event_loss_rate": treatment_loss_rate,
+                "event_loss_rate_skew": rate_skew,
+                "assignments_without_exposure": evidence.assignments_without_exposure,
+            },
+            message=(
+                "Assignment-to-exposure loss is excessive or differs by variant."
+                if failed
+                else "Assignment-to-exposure loss is within policy."
+            ),
+            recommended_action=IntegrityAction.PAUSE if failed else IntegrityAction.NONE,
+        )
+
+    def _duplicate_delivery_check(
+        self, evidence: ExperimentIntegrityEvidence
+    ) -> IntegrityCheckResult:
+        if evidence.raw_event_deliveries == 0:
+            return IntegrityCheckResult(
+                check_name=IntegrityCheckName.DUPLICATE_DELIVERY,
+                status=IntegrityCheckStatus.INSUFFICIENT_DATA,
+                severity=IntegritySeverity.WARNING,
+                blocks_analysis=True,
+                observed_value=None,
+                expected_range="At least one raw event delivery",
+                threshold=self._policy.maximum_duplicate_delivery_rate,
+                evidence={"raw_event_deliveries": 0, "duplicate_event_deliveries": 0},
+                message="There are no raw event deliveries to evaluate for duplicates.",
+                recommended_action=IntegrityAction.CONTINUE,
+            )
+
+        duplicate_rate = evidence.duplicate_event_deliveries / evidence.raw_event_deliveries
+        failed = duplicate_rate > self._policy.maximum_duplicate_delivery_rate
+        return IntegrityCheckResult(
+            check_name=IntegrityCheckName.DUPLICATE_DELIVERY,
+            status=IntegrityCheckStatus.FAIL if failed else IntegrityCheckStatus.PASS,
+            severity=IntegritySeverity.WARNING if failed else IntegritySeverity.INFO,
+            # Stable event identity keeps analytical facts effectively-once even when
+            # transport retries exceed the operational duplicate-delivery threshold.
+            blocks_analysis=False,
+            observed_value=duplicate_rate,
+            expected_range=(
+                f"raw duplicate-delivery rate <= {self._policy.maximum_duplicate_delivery_rate:.4f}"
+            ),
+            threshold=self._policy.maximum_duplicate_delivery_rate,
+            evidence={
+                "raw_event_deliveries": evidence.raw_event_deliveries,
+                "duplicate_event_deliveries": evidence.duplicate_event_deliveries,
+            },
+            message=(
+                "Raw duplicate delivery exceeds the operational threshold; clean facts remain "
+                "deduplicated by event_id."
+                if failed
+                else "Raw duplicate delivery is within the operational threshold."
+            ),
+            recommended_action=IntegrityAction.CONTINUE if failed else IntegrityAction.NONE,
+        )
+
+    def _late_data_check(self, evidence: ExperimentIntegrityEvidence) -> IntegrityCheckResult:
+        if evidence.control_canonical_events == 0 or evidence.treatment_canonical_events == 0:
+            return IntegrityCheckResult(
+                check_name=IntegrityCheckName.LATE_DATA,
+                status=IntegrityCheckStatus.INSUFFICIENT_DATA,
+                severity=IntegritySeverity.WARNING,
+                blocks_analysis=True,
+                observed_value=None,
+                expected_range="At least one canonical event in each variant",
+                threshold=self._policy.maximum_variant_late_event_rate,
+                evidence={
+                    "control_canonical_events": evidence.control_canonical_events,
+                    "treatment_canonical_events": evidence.treatment_canonical_events,
+                },
+                message="Both variants need canonical events before lateness can be evaluated.",
+                recommended_action=IntegrityAction.CONTINUE,
+            )
+
+        control_late_rate = evidence.control_late_events / evidence.control_canonical_events
+        treatment_late_rate = evidence.treatment_late_events / evidence.treatment_canonical_events
+        maximum_rate = max(control_late_rate, treatment_late_rate)
+        failed = maximum_rate > self._policy.maximum_variant_late_event_rate
+        return IntegrityCheckResult(
+            check_name=IntegrityCheckName.LATE_DATA,
+            status=IntegrityCheckStatus.FAIL if failed else IntegrityCheckStatus.PASS,
+            severity=IntegritySeverity.CRITICAL if failed else IntegritySeverity.INFO,
+            blocks_analysis=failed,
+            observed_value=maximum_rate,
+            expected_range=(
+                "late-event rate in each variant <= "
+                f"{self._policy.maximum_variant_late_event_rate:.4f}"
+            ),
+            threshold=self._policy.maximum_variant_late_event_rate,
+            evidence={
+                "control_canonical_events": evidence.control_canonical_events,
+                "control_late_events": evidence.control_late_events,
+                "control_late_event_rate": control_late_rate,
+                "treatment_canonical_events": evidence.treatment_canonical_events,
+                "treatment_late_events": evidence.treatment_late_events,
+                "treatment_late_event_rate": treatment_late_rate,
+            },
+            message=(
+                "Late event arrival exceeds the configured attribution-safety threshold."
+                if failed
+                else "Late event arrival is within policy."
+            ),
+            recommended_action=IntegrityAction.CONTINUE if failed else IntegrityAction.NONE,
+        )
+
+    def _freshness_skew_check(self, evidence: ExperimentIntegrityEvidence) -> IntegrityCheckResult:
+        control_p95 = evidence.control_p95_receive_lag_seconds
+        treatment_p95 = evidence.treatment_p95_receive_lag_seconds
+        if control_p95 is None or treatment_p95 is None:
+            return IntegrityCheckResult(
+                check_name=IntegrityCheckName.VARIANT_FRESHNESS_SKEW,
+                status=IntegrityCheckStatus.INSUFFICIENT_DATA,
+                severity=IntegritySeverity.WARNING,
+                blocks_analysis=True,
+                observed_value=None,
+                expected_range="Receive-lag evidence for both variants",
+                threshold=self._policy.maximum_freshness_skew_seconds,
+                evidence={
+                    "control_canonical_events": evidence.control_canonical_events,
+                    "treatment_canonical_events": evidence.treatment_canonical_events,
+                },
+                message="Both variants need receive-lag evidence before skew can be evaluated.",
+                recommended_action=IntegrityAction.CONTINUE,
+            )
+
+        skew_seconds = abs(control_p95 - treatment_p95)
+        failed = skew_seconds > self._policy.maximum_freshness_skew_seconds
+        return IntegrityCheckResult(
+            check_name=IntegrityCheckName.VARIANT_FRESHNESS_SKEW,
+            status=IntegrityCheckStatus.FAIL if failed else IntegrityCheckStatus.PASS,
+            severity=IntegritySeverity.CRITICAL if failed else IntegritySeverity.INFO,
+            blocks_analysis=failed,
+            observed_value=skew_seconds,
+            expected_range=(
+                "absolute p95 receive-lag skew <= "
+                f"{self._policy.maximum_freshness_skew_seconds:.1f} seconds"
+            ),
+            threshold=self._policy.maximum_freshness_skew_seconds,
+            evidence={
+                "control_p95_receive_lag_seconds": control_p95,
+                "treatment_p95_receive_lag_seconds": treatment_p95,
+                "p95_receive_lag_skew_seconds": skew_seconds,
+            },
+            message=(
+                "Receive latency differs materially between experiment variants."
+                if failed
+                else "Receive latency is consistent between experiment variants."
+            ),
+            recommended_action=IntegrityAction.CONTINUE if failed else IntegrityAction.NONE,
         )
 
 
